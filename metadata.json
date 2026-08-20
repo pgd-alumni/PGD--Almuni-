@@ -1,0 +1,6 @@
+{
+  "name": "BUTEX PGD Alumni Portal",
+  "description": "Official Alumni Directory, Job Portal, Mentorship & Networking Platform for BUTEX Post Graduate Diploma Alumni",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
