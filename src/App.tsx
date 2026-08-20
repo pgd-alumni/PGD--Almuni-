@@ -17,6 +17,12 @@ import { EventRegistrationModal } from './components/EventRegistrationModal';
 import { EventProgramSidebar } from './components/EventProgramSidebar';
 import { AlumniActionHub } from './components/AlumniActionHub';
 import { AlumniRecord, JobPost, EventItem, StatsData, UserProfile } from './types';
+import { 
+  fetchAlumniDirectFromSheet, 
+  getInitialJobs, 
+  getInitialEvents, 
+  computeLiveStats 
+} from './utils/dataEngine';
 
 export default function App() {
   const [isAuthenticated, setIsAuthenticated] = useState<boolean>(false);
@@ -79,59 +85,108 @@ export default function App() {
     });
   };
 
-  // Concurrent Data Loading with Promise.allSettled
+  // Concurrent Data Loading with Direct Sheet Fallback Engine
   const loadData = useCallback(async () => {
     try {
       setLoading(true);
       setFetchError(null);
 
-      const [alumniRes, jobsRes, adminJobsRes, eventsRes, statsRes] = await Promise.allSettled([
-        fetch('/api/alumni'),
-        fetch('/api/jobs'),
-        fetch('/api/admin/jobs'),
-        fetch('/api/events'),
-        fetch('/api/stats')
-      ]);
+      let currentAlumni: AlumniRecord[] = [];
+      let currentJobs: JobPost[] = [];
+      let currentAdminJobs: JobPost[] = [];
+      let currentEvents: EventItem[] = [];
 
-      // Handle Alumni Response
-      if (alumniRes.status === 'fulfilled' && alumniRes.value.ok) {
-        const json = await alumniRes.value.json();
-        if (json.data && Array.isArray(json.data)) {
-          setAlumniList(sanitizeAlumniData(json.data));
+      try {
+        const [alumniRes, jobsRes, adminJobsRes, eventsRes, statsRes] = await Promise.allSettled([
+          fetch('/api/alumni'),
+          fetch('/api/jobs'),
+          fetch('/api/admin/jobs'),
+          fetch('/api/events'),
+          fetch('/api/stats')
+        ]);
+
+        // Handle Alumni Response
+        if (alumniRes.status === 'fulfilled' && alumniRes.value.ok) {
+          try {
+            const json = await alumniRes.value.json();
+            if (json.data && Array.isArray(json.data) && json.data.length > 0) {
+              currentAlumni = sanitizeAlumniData(json.data);
+            }
+          } catch (e) {}
         }
+
+        // Handle Job Listings
+        if (jobsRes.status === 'fulfilled' && jobsRes.value.ok) {
+          try {
+            const json = await jobsRes.value.json();
+            if (json.data && Array.isArray(json.data) && json.data.length > 0) {
+              currentJobs = json.data;
+            }
+          } catch (e) {}
+        }
+
+        // Handle Admin Job Submissions
+        if (adminJobsRes.status === 'fulfilled' && adminJobsRes.value.ok) {
+          try {
+            const json = await adminJobsRes.value.json();
+            if (json.data && Array.isArray(json.data)) {
+              currentAdminJobs = json.data;
+            }
+          } catch (e) {}
+        }
+
+        // Handle Events
+        if (eventsRes.status === 'fulfilled' && eventsRes.value.ok) {
+          try {
+            const json = await eventsRes.value.json();
+            if (json.data && Array.isArray(json.data) && json.data.length > 0) {
+              currentEvents = json.data;
+            }
+          } catch (e) {}
+        }
+
+        // Handle Portal Stats
+        if (statsRes.status === 'fulfilled' && statsRes.value.ok) {
+          try {
+            const json = await statsRes.value.json();
+            if (json.stats) {
+              setStats(json.stats);
+            }
+          } catch (e) {}
+        }
+      } catch (err) {
+        console.warn("API endpoints not reachable, falling back to direct sheet sync:", err);
       }
 
-      // Handle Job Listings
-      if (jobsRes.status === 'fulfilled' && jobsRes.value.ok) {
-        const json = await jobsRes.value.json();
-        if (json.data && Array.isArray(json.data)) {
-          setJobList(json.data);
-        }
+      // 1. Direct Fallback for Alumni if API failed or returned empty (e.g. Vercel static deployment)
+      if (currentAlumni.length === 0) {
+        currentAlumni = await fetchAlumniDirectFromSheet();
       }
+      setAlumniList(currentAlumni);
 
-      // Handle Admin Job Submissions
-      if (adminJobsRes.status === 'fulfilled' && adminJobsRes.value.ok) {
-        const json = await adminJobsRes.value.json();
-        if (json.data && Array.isArray(json.data)) {
-          setAdminJobs(json.data);
-        }
+      // 2. Direct Fallback for Jobs
+      if (currentJobs.length === 0) {
+        currentJobs = getInitialJobs();
       }
+      setJobList(currentJobs);
+      setAdminJobs(currentAdminJobs.length > 0 ? currentAdminJobs : currentJobs);
 
-      // Handle Events
-      if (eventsRes.status === 'fulfilled' && eventsRes.value.ok) {
-        const json = await eventsRes.value.json();
-        if (json.data && Array.isArray(json.data)) {
-          setEvents(json.data);
-        }
+      // 3. Direct Fallback for Events
+      if (currentEvents.length === 0) {
+        currentEvents = getInitialEvents();
       }
+      setEvents(currentEvents);
 
-      // Handle Portal Stats
-      if (statsRes.status === 'fulfilled' && statsRes.value.ok) {
-        const json = await statsRes.value.json();
-        if (json.stats) {
-          setStats(json.stats);
-        }
-      }
+      // 4. Compute Dynamic Real-Time Stats
+      setStats(prevStats => {
+        const computed = computeLiveStats(currentAlumni, currentJobs, currentEvents);
+        return {
+          ...computed,
+          ...prevStats,
+          totalAlumni: Math.max(currentAlumni.length, computed.totalAlumni)
+        };
+      });
+
     } catch (err) {
       console.error("Error loading portal data:", err);
       setFetchError("Failed to synchronize with live database. Displays cached records.");
@@ -198,6 +253,7 @@ export default function App() {
       {/* Real-time OTP / Password Auth Overlay */}
       <AuthOverlay
         isAuthenticated={isAuthenticated}
+        alumniList={alumniList}
         onAuthenticated={(user) => {
           setIsAuthenticated(true);
           if (user) {
