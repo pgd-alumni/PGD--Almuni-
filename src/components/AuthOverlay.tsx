@@ -208,8 +208,8 @@ export const AuthOverlay: React.FC<AuthOverlayProps> = ({
                 : 'text-slate-400 hover:text-white'
             }`}
           >
-            <MessageSquare className="w-3.5 h-3.5" />
-            <span>WhatsApp / Email OTP</span>
+            <Phone className="w-3.5 h-3.5" />
+            <span>Enter Phone or Email</span>
           </button>
 
           <button

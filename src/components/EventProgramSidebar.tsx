@@ -111,7 +111,7 @@ export const EventProgramSidebar: React.FC<EventProgramSidebarProps> = ({
         </div>
         <div className="flex items-center space-x-1.5">
           <span className="px-2 py-0.5 rounded-full bg-slate-950 text-amber-400 text-[10px] font-extrabold shadow-sm">
-            {events.length} Active Courses
+            {events.length} Active Events
           </span>
         </div>
       </div>
