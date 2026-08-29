@@ -89,6 +89,7 @@ export interface EventRegistration {
   eventTitle: string;
   studentId: string;
   studentName: string;
+  memberEmail?: string;
   memberPhone?: string;
   paymentGateway?: string;
   paymentMethod: 'bKash' | 'Nagad' | 'Bank Transfer' | 'Rocket' | string;
@@ -101,6 +102,37 @@ export interface EventRegistration {
   submittedAt: string;
   isVerifiedMember?: boolean;
   matchedAlumniName?: string;
+  emailNotified?: boolean;
+}
+
+export interface MemberJoinRequest {
+  id: string;
+  name: string;
+  email: string;
+  phone: string;
+  rollNo: string;
+  batch?: string;
+  company: string;
+  designation: string;
+  experience?: string;
+  address?: string;
+  university?: string;
+  photoUrl?: string;
+  resumeUrl?: string;
+  badges?: string[];
+  status: 'Pending' | 'Approved' | 'Rejected';
+  submittedAt: string;
+  emailNotified?: boolean;
+  whatsappNotified?: boolean;
+}
+
+export interface EmailNotificationPayload {
+  to: string;
+  subject: string;
+  recipientName: string;
+  type: 'event_approval' | 'welcome_member' | 'custom';
+  contentHtml: string;
+  contentText: string;
 }
 
 export interface EventReview {

@@ -56,10 +56,18 @@ export const ClassReviewSection: React.FC<ClassReviewSectionProps> = ({
 
   // Load reviews for this event
   const loadReviews = () => {
-    fetch(`/api/events/${event.id}/reviews`)
-      .then(res => res.json())
+    if (!event || !event.id) return;
+    fetch(`/api/events/${encodeURIComponent(event.id)}/reviews`)
+      .then(async res => {
+        if (!res.ok) return null;
+        const contentType = res.headers.get('content-type') || '';
+        if (contentType.includes('application/json')) {
+          return res.json();
+        }
+        return null;
+      })
       .then(data => {
-        if (data.success && Array.isArray(data.data)) {
+        if (data?.success && Array.isArray(data.data)) {
           setReviews(data.data);
         }
       })
@@ -68,7 +76,7 @@ export const ClassReviewSection: React.FC<ClassReviewSectionProps> = ({
 
   useEffect(() => {
     loadReviews();
-  }, [event.id]);
+  }, [event?.id]);
 
   // Handle OTP Send
   const handleSendOtp = async (e: React.FormEvent) => {

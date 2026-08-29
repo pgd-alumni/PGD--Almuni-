@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import butexLogo from '../assets/butex-logo.png';
+import { ButexLogo } from './ButexLogo';
 import { 
   Sparkles, 
   GraduationCap, 
@@ -112,13 +112,10 @@ export const Navbar: React.FC<NavbarProps> = ({
           className="flex items-center space-x-2.5 sm:space-x-3 cursor-pointer group" 
           onClick={() => handleNav('home')}
         >
-          <div className="w-9 h-9 sm:w-11 sm:h-11 rounded-full bg-white flex items-center justify-center p-0.5 shadow-md border-2 border-[#FFBF00] shrink-0 group-hover:scale-105 transition-transform">
-            <img 
-              src={butexLogo} 
-              alt="BUTEX Logo" 
-              className="w-full h-full object-contain rounded-full"
-            />
-          </div>
+          <ButexLogo 
+            sizeClassName="w-9 h-9 sm:w-11 sm:h-11" 
+            className="group-hover:scale-105 transition-transform" 
+          />
 
           <div className="flex flex-col">
             <h1 className="text-sm sm:text-[17px] font-black tracking-wide text-white leading-none">

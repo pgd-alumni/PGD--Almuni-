@@ -49,12 +49,19 @@ export const EventProgramSidebar: React.FC<EventProgramSidebarProps> = ({
 
   // Fetch reviews for active event
   useEffect(() => {
-    if (!activeEvent) return;
+    if (!activeEvent || !activeEvent.id) return;
 
-    fetch(`/api/events/${activeEvent.id}/reviews`)
-      .then(res => res.json())
+    fetch(`/api/events/${encodeURIComponent(activeEvent.id)}/reviews`)
+      .then(async res => {
+        if (!res.ok) return null;
+        const contentType = res.headers.get('content-type') || '';
+        if (contentType.includes('application/json')) {
+          return res.json();
+        }
+        return null;
+      })
       .then(data => {
-        if (data.success) {
+        if (data?.success && Array.isArray(data.data)) {
           setReviewsMap(prev => ({ ...prev, [activeEvent.id]: data.data }));
         }
       })
@@ -62,15 +69,15 @@ export const EventProgramSidebar: React.FC<EventProgramSidebarProps> = ({
 
     const isUnlocked = true; // Enabled for preview feedback
     setUnlockedMap(prev => ({ ...prev, [activeEvent.id]: isUnlocked }));
-  }, [activeEvent]);
+  }, [activeEvent?.id]);
 
   const handlePostReview = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!activeEvent || !newComment.trim()) return;
+    if (!activeEvent || !activeEvent.id || !newComment.trim()) return;
 
     try {
       setSubmittingReview(true);
-      const res = await fetch(`/api/events/${activeEvent.id}/reviews`, {
+      const res = await fetch(`/api/events/${encodeURIComponent(activeEvent.id)}/reviews`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -80,8 +87,11 @@ export const EventProgramSidebar: React.FC<EventProgramSidebarProps> = ({
         })
       });
 
+      if (!res.ok) {
+        throw new Error("Failed to post review");
+      }
       const data = await res.json();
-      if (res.ok && data.success) {
+      if (data.success && data.review) {
         setReviewsMap(prev => ({
           ...prev,
           [activeEvent.id]: [data.review, ...(prev[activeEvent.id] || [])]

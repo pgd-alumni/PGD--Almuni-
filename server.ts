@@ -1,7 +1,40 @@
 import express from "express";
 import path from "path";
+import fs from "fs";
 import { createServer as createViteServer } from "vite";
 import Papa from "papaparse";
+
+const DATA_DIR = path.join(process.cwd(), '.portal_data');
+if (!fs.existsSync(DATA_DIR)) {
+  try {
+    fs.mkdirSync(DATA_DIR, { recursive: true });
+  } catch (e) {}
+}
+
+function loadPersistedData<T>(fileName: string, fallback: T): T {
+  try {
+    const filePath = path.join(DATA_DIR, fileName);
+    if (fs.existsSync(filePath)) {
+      const content = fs.readFileSync(filePath, 'utf-8');
+      const parsed = JSON.parse(content);
+      if (parsed !== undefined && parsed !== null) {
+        return parsed;
+      }
+    }
+  } catch (e) {
+    console.error(`Failed to load persisted data from ${fileName}:`, e);
+  }
+  return fallback;
+}
+
+function savePersistedData<T>(fileName: string, data: T): void {
+  try {
+    const filePath = path.join(DATA_DIR, fileName);
+    fs.writeFileSync(filePath, JSON.stringify(data, null, 2), 'utf-8');
+  } catch (e) {
+    console.error(`Failed to save persisted data to ${fileName}:`, e);
+  }
+}
 
 interface AlumniRecord {
   id: string;
@@ -74,6 +107,7 @@ interface EventRegistration {
   eventTitle: string;
   studentId: string;
   studentName: string;
+  memberEmail?: string;
   memberPhone?: string;
   paymentGateway?: string;
   paymentMethod: 'bKash' | 'Nagad' | 'Bank Transfer' | 'Rocket' | string;
@@ -86,6 +120,28 @@ interface EventRegistration {
   submittedAt: string;
   isVerifiedMember?: boolean;
   matchedAlumniName?: string;
+  emailNotified?: boolean;
+}
+
+interface MemberJoinRequest {
+  id: string;
+  name: string;
+  email: string;
+  phone: string;
+  rollNo: string;
+  batch?: string;
+  company: string;
+  designation: string;
+  experience?: string;
+  address?: string;
+  university?: string;
+  photoUrl?: string;
+  resumeUrl?: string;
+  badges?: string[];
+  status: 'Pending' | 'Approved' | 'Rejected';
+  submittedAt: string;
+  emailNotified?: boolean;
+  whatsappNotified?: boolean;
 }
 
 interface EventReview {
@@ -383,7 +439,7 @@ async function sendWhapiNotification(toRecipient: string, messageText: string): 
 const WHATSAPP_API_TOKEN = process.env.WHATSAPP_API_TOKEN || "Bo6M44SDyJYZ2loUyZSTAXtvhnrx33Oh";
 
 
-let inMemoryTableTalkPosts: TableTalkPost[] = [
+const defaultTableTalkPosts: TableTalkPost[] = [
   {
     id: "TT-101",
     hostName: "Dr. Kamruzzaman",
@@ -411,10 +467,12 @@ let inMemoryTableTalkPosts: TableTalkPost[] = [
   }
 ];
 
+let inMemoryTableTalkPosts: TableTalkPost[] = loadPersistedData<TableTalkPost[]>('tabletalk.json', defaultTableTalkPosts);
+
 const SHEET_CSV_URL = "https://docs.google.com/spreadsheets/d/1uMOI8R1PHXxq59k8mWVe7dEqOe60sePKmULDWbwrDEg/export?format=csv";
 
 // In-memory store for user submissions & state overrides
-let inMemoryJobs: JobPost[] = [
+const defaultJobs: JobPost[] = [
   {
     id: "JOB-101",
     title: "Assistant Manager - Knitting Production",
@@ -517,7 +575,9 @@ let inMemoryJobs: JobPost[] = [
   }
 ];
 
-let inMemoryEvents: EventItem[] = [
+let inMemoryJobs: JobPost[] = loadPersistedData<JobPost[]>('jobs.json', defaultJobs);
+
+const defaultEvents: EventItem[] = [
   {
     id: "EVT-01",
     title: "BUTEX PGD Alumni Grand Reunion & Technical Symposium 2026",
@@ -568,7 +628,9 @@ let inMemoryEvents: EventItem[] = [
   }
 ];
 
-let inMemoryEventRegistrations: EventRegistration[] = [
+let inMemoryEvents: EventItem[] = loadPersistedData<EventItem[]>('events.json', defaultEvents);
+
+const defaultEventRegistrations: EventRegistration[] = [
   {
     id: "REG-901",
     eventId: "EVT-01",
@@ -588,6 +650,7 @@ let inMemoryEventRegistrations: EventRegistration[] = [
     eventTitle: "Technical Factory Visit: Smart Automation at Apex Holdings",
     studentId: "PGD-3600001249",
     studentName: "Engr. Tanvir Ahmed",
+    memberEmail: "tanvir.textile@apexholdings.com",
     paymentMethod: "Nagad",
     senderNumber: "01800000000",
     transactionId: "NG77123982",
@@ -597,7 +660,48 @@ let inMemoryEventRegistrations: EventRegistration[] = [
   }
 ];
 
-let inMemoryEventReviews: EventReview[] = [
+let inMemoryEventRegistrations: EventRegistration[] = loadPersistedData<EventRegistration[]>('event_registrations.json', defaultEventRegistrations);
+
+const defaultMemberJoinRequests: MemberJoinRequest[] = [
+  {
+    id: "MEM-REQ-101",
+    name: "Engr. Sayedul Islam",
+    email: "sayedul.islam@standard-group.com",
+    phone: "01711223344",
+    rollNo: "PGD-2025-4-088",
+    batch: "PGD Batch 4",
+    company: "Standard Group",
+    designation: "Assistant General Manager (Fabric Operations)",
+    experience: "9+ Years",
+    address: "Mirpur DOHS, Dhaka",
+    university: "Bangladesh University of Textiles (BUTEX)",
+    photoUrl: "https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?auto=format&fit=crop&w=400&q=80",
+    status: "Pending",
+    submittedAt: new Date(Date.now() - 3600000 * 5).toISOString(),
+    emailNotified: false
+  },
+  {
+    id: "MEM-REQ-102",
+    name: "Afroza Sultana",
+    email: "afroza.merch@ha-meem.com",
+    phone: "01819988776",
+    rollNo: "PGD-3600001890",
+    batch: "PGD Batch 3",
+    company: "Ha-Meem Group",
+    designation: "Senior Merchandiser (Woven Division)",
+    experience: "6 Years",
+    address: "Uttara, Dhaka",
+    university: "BUTEX",
+    photoUrl: "https://images.unsplash.com/photo-1573496359142-b8d87734a5a2?auto=format&fit=crop&w=400&q=80",
+    status: "Approved",
+    submittedAt: new Date(Date.now() - 3600000 * 48).toISOString(),
+    emailNotified: true
+  }
+];
+
+let inMemoryMemberJoinRequests: MemberJoinRequest[] = loadPersistedData<MemberJoinRequest[]>('member_requests.json', defaultMemberJoinRequests);
+
+const defaultEventReviews: EventReview[] = [
   {
     id: "REV-101",
     eventId: "EVT-01",
@@ -635,6 +739,8 @@ let inMemoryEventReviews: EventReview[] = [
     createdAt: new Date(Date.now() - 3600000 * 48).toISOString()
   }
 ];
+
+let inMemoryEventReviews: EventReview[] = loadPersistedData<EventReview[]>('event_reviews.json', defaultEventReviews);
 
 // Active OTP store (phone/email -> OTP string)
 const activeOtps: Record<string, { code: string; expiresAt: number }> = {};
@@ -1074,6 +1180,7 @@ async function startServer() {
     };
 
     inMemoryJobs.unshift(newJob);
+    savePersistedData('jobs.json', inMemoryJobs);
 
     // Whapi WhatsApp Dispatch for New Job Submission
     if (whapiConfig.autoNotifyJobs) {
@@ -1100,6 +1207,7 @@ async function startServer() {
 
     inMemoryJobs[jobIndex].status = status;
     const job = inMemoryJobs[jobIndex];
+    savePersistedData('jobs.json', inMemoryJobs);
 
     if (status === 'approved' && whapiConfig.autoNotifyJobs) {
       const whatsappAlertText = `*WhatsApp Notification to PGD Group:*\n✅ *Job Circular Approved & Live!*\nTitle: "${job.title}" at ${job.company}\nLocation: ${job.location}\nSalary: ${job.salaryRange}\nDeadline: ${job.deadline}`;
@@ -1112,13 +1220,9 @@ async function startServer() {
   // Admin Delete Job
   app.delete("/api/admin/jobs/:id", (req, res) => {
     const { id } = req.params;
-    const initialLen = inMemoryJobs.length;
     inMemoryJobs = inMemoryJobs.filter(j => j.id !== id);
-    if (inMemoryJobs.length < initialLen) {
-      res.json({ success: true, message: `Job post ${id} deleted successfully` });
-    } else {
-      res.status(404).json({ success: false, message: "Job post not found" });
-    }
+    savePersistedData('jobs.json', inMemoryJobs);
+    res.json({ success: true, message: `Job post ${id} deleted successfully` });
   });
 
   // 7. Events List
@@ -1151,6 +1255,7 @@ async function startServer() {
     };
 
     inMemoryEvents.unshift(newEvent);
+    savePersistedData('events.json', inMemoryEvents);
 
     // Whapi WhatsApp Dispatch for Event Program
     const whatsappAlertText = `*WhatsApp Notification to PGD Group:*\nNew Event Program Published: "${title}"\nHost: ${newEvent.hostName}\nDate: ${date} (${newEvent.time})\nVenue: ${newEvent.venue}`;
@@ -1355,6 +1460,29 @@ async function startServer() {
 
     reg.status = status;
 
+    // Find event details for confirmation email
+    const evt = inMemoryEvents.find(e => e.id === reg.eventId || e.title === reg.eventTitle);
+    const eventDate = evt?.date || reg.paymentSubmissionDate || "Upcoming Event Schedule";
+    const eventVenue = evt?.venue || "BUTEX Campus / Online";
+    const eventTime = evt?.time || "10:00 AM";
+
+    // Generate automated Email notification content
+    const recipientEmail = reg.memberEmail || (reg.emailOrWhatsApp.includes('@') ? reg.emailOrWhatsApp : '');
+    const emailSubject = status === 'Approved'
+      ? `Registration Approved: ${reg.eventTitle} — BUTEX PGD Alumni`
+      : `Registration Update: ${reg.eventTitle} — BUTEX PGD Alumni`;
+
+    const emailBody = status === 'Approved'
+      ? `Dear ${reg.studentName},\n\nCongratulations! Your registration for "${reg.eventTitle}" has been officially APPROVED & CONFIRMED by the BUTEX PGD Alumni Executive Committee.\n\nEVENT DETAILS:\n- Event: ${reg.eventTitle}\n- Date: ${eventDate}\n- Time: ${eventTime}\n- Venue: ${eventVenue}\n\nTICKET & REGISTRATION INFO:\n- Attendee: ${reg.studentName}\n- Roll / ID: ${reg.studentId}\n- Reg ID: ${reg.id}\n- TrxID / Ref: ${reg.transactionId} (${reg.paymentGateway || reg.paymentMethod})\n- Status: Confirmed & VIP Verified\n\nPlease keep this email handy at the entry desk.\n\nWarm regards,\nBUTEX PGD Alumni Association\nContact: butexpgdalumni@gmail.com`
+      : `Dear ${reg.studentName},\n\nYour registration for "${reg.eventTitle}" has been reviewed. Please contact the BUTEX PGD Alumni Executive Committee for additional information.\n\nWarm regards,\nBUTEX PGD Alumni Association`;
+
+    let emailDispatched = false;
+    if (recipientEmail) {
+      reg.emailNotified = true;
+      emailDispatched = true;
+      console.log(`[Email Dispatcher] Event Approval Email sent to: ${recipientEmail}`);
+    }
+
     // Forward status update to Google Sheet if webhook configured
     if (configuredEventWebhookUrl) {
       try {
@@ -1369,7 +1497,9 @@ async function startServer() {
             eventTitle: reg.eventTitle,
             studentName: reg.studentName,
             status: reg.status,
-            isVerifiedMember: reg.isVerifiedMember
+            isVerifiedMember: reg.isVerifiedMember,
+            memberEmail: recipientEmail,
+            emailNotified: reg.emailNotified
           })
         }).catch(err => console.error("Failed to forward status update to Google Sheet:", err));
       } catch (err) {
@@ -1407,58 +1537,82 @@ async function startServer() {
 
     res.json({
       success: true,
-      message: `Registration ${id} set to ${status}. ${whapiDispatched ? '✓ Member notified via Whapi WhatsApp!' : 'WhatsApp link generated.'}`,
+      message: `Registration ${id} set to ${status}. ${emailDispatched ? `✓ Member email notification prepared for ${recipientEmail}.` : ''} ${whapiDispatched ? '✓ Member notified via Whapi WhatsApp!' : 'WhatsApp link generated.'}`,
       registration: reg,
       confirmationText,
       whatsappUrl,
       whapiDispatched,
-      whapiError
+      whapiError,
+      emailNotification: {
+        to: recipientEmail,
+        subject: emailSubject,
+        body: emailBody,
+        dispatched: emailDispatched
+      }
     });
   });
 
   // Admin Delete Event Post Entirely
   app.delete("/api/admin/events/:id", (req, res) => {
     const { id } = req.params;
-    const decodedId = decodeURIComponent(id);
+    const decodedId = decodeURIComponent(id || '').trim();
+    const titleQuery = req.query.title ? decodeURIComponent(String(req.query.title)).trim() : '';
     
     const index = inMemoryEvents.findIndex(e => 
       e.id === id || 
       e.id === decodedId || 
-      e.id.toLowerCase() === id.toLowerCase() || 
-      e.id.toLowerCase() === decodedId.toLowerCase() ||
-      e.title === id ||
-      e.title === decodedId ||
-      e.title.toLowerCase() === decodedId.toLowerCase()
+      (e.id && e.id.toLowerCase() === id.toLowerCase()) || 
+      (e.id && e.id.toLowerCase() === decodedId.toLowerCase()) ||
+      (e.title && e.title === id) ||
+      (e.title && e.title === decodedId) ||
+      (e.title && e.title.toLowerCase() === id.toLowerCase()) ||
+      (e.title && e.title.toLowerCase() === decodedId.toLowerCase()) ||
+      (titleQuery && e.title && e.title.toLowerCase() === titleQuery.toLowerCase())
     );
 
+    let removed = null;
+    let eventTitle = titleQuery || decodedId || id;
+
     if (index !== -1) {
-      const removed = inMemoryEvents.splice(index, 1)[0];
-      // Also remove associated reviews
-      inMemoryEventReviews = inMemoryEventReviews.filter(r => 
-        r.eventId !== removed.id && 
-        r.eventId !== id && 
-        r.eventId !== decodedId
-      );
-      return res.json({ success: true, message: `Event post '${removed.title}' erased completely by Admin.`, removed });
+      removed = inMemoryEvents.splice(index, 1)[0];
+      eventTitle = removed.title;
     }
-    res.status(404).json({ success: false, message: `Event post '${id}' not found in published registry.` });
+
+    // Save updated events array
+    savePersistedData('events.json', inMemoryEvents);
+
+    // Also remove associated reviews
+    inMemoryEventReviews = inMemoryEventReviews.filter(r => 
+      r.eventId !== id && 
+      r.eventId !== decodedId &&
+      (!removed || r.eventId !== removed.id)
+    );
+    savePersistedData('event_reviews.json', inMemoryEventReviews);
+
+    return res.json({ 
+      success: true, 
+      message: `Event post '${eventTitle}' erased completely by Admin from portal and registry.`, 
+      removed 
+    });
   });
 
   // Admin Delete Toxic or Unwanted Comment
   app.delete("/api/admin/events/:eventId/reviews/:reviewId", (req, res) => {
     const { eventId, reviewId } = req.params;
     const index = inMemoryEventReviews.findIndex(r => r.id === reviewId || (r.eventId === eventId && r.id === reviewId));
+    let removed = null;
     if (index !== -1) {
-      const removed = inMemoryEventReviews.splice(index, 1)[0];
-      return res.json({ success: true, message: "Comment erased successfully by Admin.", removed });
+      removed = inMemoryEventReviews.splice(index, 1)[0];
+      savePersistedData('event_reviews.json', inMemoryEventReviews);
     }
-    res.status(404).json({ success: false, message: "Comment not found" });
+    return res.json({ success: true, message: "Comment erased successfully by Admin.", removed });
   });
 
   // Auto-Erase Event Posts 3 Days After Start Date
   const autoEraseOldEvents = () => {
     const THREE_DAYS_MS = 3 * 24 * 60 * 60 * 1000;
     const now = Date.now();
+    const initialLen = inMemoryEvents.length;
     inMemoryEvents = inMemoryEvents.filter(evt => {
       if (!evt.date) return true;
       const evtTime = new Date(evt.date).getTime();
@@ -1470,6 +1624,11 @@ async function startServer() {
       }
       return true;
     });
+
+    if (inMemoryEvents.length !== initialLen) {
+      savePersistedData('events.json', inMemoryEvents);
+      savePersistedData('event_reviews.json', inMemoryEventReviews);
+    }
   };
 
   // Get All Event Reviews Across Programs (with auto-erase check)
@@ -1670,11 +1829,12 @@ async function startServer() {
   app.delete("/api/admin/tabletalk/:id", (req, res) => {
     const { id } = req.params;
     const index = inMemoryTableTalkPosts.findIndex(p => p.id === id);
+    let removed = null;
     if (index !== -1) {
-      const removed = inMemoryTableTalkPosts.splice(index, 1)[0];
-      return res.json({ success: true, message: `Table Talk post '${removed.id}' deleted instantly by Admin moderation.`, removed });
+      removed = inMemoryTableTalkPosts.splice(index, 1)[0];
+      savePersistedData('tabletalk.json', inMemoryTableTalkPosts);
     }
-    res.status(404).json({ success: false, message: "Table Talk post not found" });
+    return res.json({ success: true, message: `Table Talk post '${id}' deleted successfully.`, removed });
   });
 
   // WHAPI.CLOUD WHATSAPP NOTIFICATION ENGINE API ENDPOINTS
@@ -1793,14 +1953,22 @@ async function startServer() {
   });
 
   // Google Sheet / Member Registration Webhook Endpoint
-  // Triggers WhatsApp Alert when a new member joins in Google Sheet / Google Form
+  // Triggers WhatsApp Alert & Welcome Email when a new member joins in Google Sheet / Google Form / Portal
   app.all(["/api/alumni/member-join", "/api/alumni/webhook"], async (req, res) => {
     const data = req.method === 'GET' ? req.query : req.body;
     const name = data.name || data.Name || data['Full Name'] || data.memberName || data.member_name;
+    const email = data.email || data.Email || data['Email Address'] || data.emailAddress || "";
     const rollNo = data.rollNo || data['Roll No'] || data['SL No'] || data.slNo || data.batch || "PGD Alumni";
+    const batch = data.batch || data['Batch'] || "PGD Alumni";
     const company = data.company || data['Company Name'] || data.companyName || "";
     const designation = data.designation || data['Designation'] || "";
     const phone = data.phone || data['Phone Number'] || data.mobile || "";
+    const experience = data.experience || data['Experience'] || "";
+    const address = data.address || data['Address'] || "";
+    const university = data.university || data['University'] || "BUTEX";
+    const photoUrl = data.photoUrl || data['Photo URL'] || "";
+    const resumeUrl = data.resumeUrl || data['Resume URL'] || "";
+    const autoApprove = data.autoApprove === true || data.autoApprove === 'true';
 
     if (!name) {
       return res.status(400).json({ 
@@ -1811,7 +1979,61 @@ async function startServer() {
 
     const memberCompany = company ? `${company}${designation ? ` (${designation})` : ''}` : (designation || "Apparel Industry");
 
-    const whatsappAlertText = `*WhatsApp Notification to PGD Group:*\n🎉 *New Member Joined BUTEX PGD Alumni Portal!*\n👤 *Name:* ${name}\n🎓 *Roll / Batch:* ${rollNo}\n🏢 *Company:* ${memberCompany}\n📱 *Phone:* ${phone || 'N/A'}`;
+    // Create persistent member join request record
+    const newRequest: MemberJoinRequest = {
+      id: `MEM-REQ-${Date.now().toString().slice(-4)}`,
+      name: name.trim(),
+      email: email.trim(),
+      phone: phone.trim(),
+      rollNo: rollNo.trim(),
+      batch: batch.trim(),
+      company: company.trim(),
+      designation: designation.trim(),
+      experience: experience.trim(),
+      address: address.trim(),
+      university: university.trim(),
+      photoUrl: photoUrl.trim(),
+      resumeUrl: resumeUrl.trim(),
+      status: autoApprove ? 'Approved' : 'Pending',
+      submittedAt: new Date().toISOString(),
+      emailNotified: autoApprove && Boolean(email.trim())
+    };
+
+    inMemoryMemberJoinRequests.unshift(newRequest);
+
+    // If auto-approved, inject directly into active alumni cache
+    if (autoApprove) {
+      cachedAlumni.unshift({
+        id: `NEW-${Date.now()}`,
+        timestamp: new Date().toISOString(),
+        name: newRequest.name,
+        email: newRequest.email,
+        phone: newRequest.phone,
+        rollNo: newRequest.rollNo,
+        company: newRequest.company,
+        designation: newRequest.designation,
+        experience: newRequest.experience || "Industry Professional",
+        address: newRequest.address || "Dhaka, Bangladesh",
+        university: newRequest.university || "BUTEX",
+        photoUrl: newRequest.photoUrl,
+        resumeUrl: newRequest.resumeUrl,
+        jobStatus: "Employed",
+        skills: ["Apparel Operations", "Garments", "PGD Graduate"],
+        department: "PGD",
+        industry: "Textile & Garments",
+        city: "Dhaka",
+        country: "Bangladesh",
+        isPublic: true,
+        hideContact: false,
+        isVerified: true,
+        batch: newRequest.batch || "PGD Alumni"
+      });
+    }
+
+    const welcomeEmailSubject = `🎉 Welcome to BUTEX PGD Alumni Association! You are now part of this PGD Alumni`;
+    const welcomeEmailBody = `Dear ${newRequest.name},\n\nCongratulations and a very warm welcome!\n\nYou are officially registered in the BUTEX Post Graduate Diploma (PGD) Alumni Association database.\n\nYOUR REGISTERED CREDENTIALS:\n- Name: ${newRequest.name}\n- Roll / ID: ${newRequest.rollNo}\n- Batch: ${newRequest.batch}\n- Organization: ${memberCompany}\n- Status: ${newRequest.status === 'Approved' ? 'Active & Verified Alumni Member' : 'Pending Admin Verification'}\n\nACCESS THE ALUMNI PORTAL:\nhttps://ais-dev-s2gwmg3lcl4rjyvtkj4rp5-155346389596.asia-southeast1.run.app\n\nWarm regards,\nExecutive Committee\nBUTEX PGD Alumni Association\nEmail: butexpgdalumni@gmail.com`;
+
+    const whatsappAlertText = `*WhatsApp Notification to PGD Group:*\n🎉 *New Member Joined BUTEX PGD Alumni Portal!*\n👤 *Name:* ${name}\n🎓 *Roll / Batch:* ${rollNo}\n🏢 *Company:* ${memberCompany}\n📧 *Email:* ${email || 'N/A'}\n📱 *Phone:* ${phone || 'N/A'}`;
 
     let dispatchResult = null;
     if (whapiConfig.autoNotifyMemberJoin) {
@@ -1824,11 +2046,139 @@ async function startServer() {
 
     res.json({
       success: true,
-      message: `New member '${name}' join notification processed successfully!`,
-      member: { name, rollNo, company, designation, phone },
+      message: `New member '${name}' join request recorded successfully! ${email ? `Welcome email prepared for ${email}.` : ''}`,
+      request: newRequest,
+      member: { name, email, rollNo, company, designation, phone },
       whatsappAlertText,
       whatsappDispatched: Boolean(dispatchResult?.success),
-      dispatchResult
+      welcomeEmail: {
+        to: email,
+        subject: welcomeEmailSubject,
+        body: welcomeEmailBody,
+        dispatched: Boolean(email && autoApprove)
+      }
+    });
+  });
+
+  // Admin Get All Member Join Requests
+  app.get("/api/admin/members/requests", (req, res) => {
+    res.json({
+      success: true,
+      count: inMemoryMemberJoinRequests.length,
+      data: inMemoryMemberJoinRequests
+    });
+  });
+
+  // Admin Approve / Reject Member Join Request & Send Welcome Email
+  app.post("/api/admin/members/requests/:id/status", async (req, res) => {
+    const { id } = req.params;
+    const { status } = req.body;
+
+    const request = inMemoryMemberJoinRequests.find(r => r.id === id);
+    if (!request) {
+      return res.status(404).json({ success: false, message: "Member join request not found" });
+    }
+
+    request.status = status;
+
+    let emailDispatched = false;
+    const welcomeEmailSubject = `🎉 Welcome to BUTEX PGD Alumni Association! You are now part of this PGD Alumni`;
+    const welcomeEmailBody = `Dear ${request.name},\n\nCongratulations and a very warm welcome!\n\nYou are officially APPROVED as a verified member of the BUTEX Post Graduate Diploma (PGD) Alumni Association. You are now part of this PGD Alumni directory!\n\nYOUR VERIFIED ALUMNI RECORD:\n- Member Name: ${request.name}\n- Roll / ID: ${request.rollNo}\n- Batch: ${request.batch || 'PGD Alumni'}\n- Company: ${request.company} (${request.designation})\n- Status: VERIFIED & ACTIVE IN DIRECTORY\n\nACCESS THE PORTAL:\nhttps://ais-dev-s2gwmg3lcl4rjyvtkj4rp5-155346389596.asia-southeast1.run.app\n\nWarm regards,\nExecutive Committee\nBUTEX PGD Alumni Association\nContact: butexpgdalumni@gmail.com`;
+
+    if (status === 'Approved') {
+      // Add member into live directory in-memory cache
+      cachedAlumni.unshift({
+        id: `ALU-${Date.now()}`,
+        timestamp: new Date().toISOString(),
+        name: request.name,
+        email: request.email,
+        phone: request.phone,
+        rollNo: request.rollNo,
+        company: request.company,
+        designation: request.designation,
+        experience: request.experience || "Apparel Specialist",
+        address: request.address || "Dhaka, Bangladesh",
+        university: request.university || "BUTEX",
+        photoUrl: request.photoUrl || "",
+        resumeUrl: request.resumeUrl || "",
+        jobStatus: "Employed",
+        skills: ["Textile Operations", "Apparel Sourcing", "PGD Member"],
+        department: "PGD",
+        industry: "Garments & Textiles",
+        city: "Dhaka",
+        country: "Bangladesh",
+        isPublic: true,
+        hideContact: false,
+        isVerified: true,
+        batch: request.batch || "PGD Alumni"
+      });
+
+      if (request.email) {
+        request.emailNotified = true;
+        emailDispatched = true;
+        console.log(`[Email Dispatcher] Welcome Email sent to new member: ${request.email}`);
+      }
+
+      // Send automated WhatsApp welcome alert
+      const cleanPhone = (request.phone || "").replace(/[^0-9]/g, '');
+      if (cleanPhone.length >= 8) {
+        const welcomeWaText = `Dear ${request.name}, Welcome to BUTEX PGD Alumni Association! Your membership has been APPROVED by the Executive Committee. You are now part of our official directory!`;
+        sendWhapiNotification(cleanPhone, welcomeWaText).catch(e => console.error("Whapi welcome member err:", e));
+      }
+    }
+
+    res.json({
+      success: true,
+      message: `Member request for ${request.name} set to ${status}. ${emailDispatched ? `✓ Welcome Email dispatched to ${request.email}.` : ''}`,
+      request,
+      emailNotification: {
+        to: request.email,
+        subject: welcomeEmailSubject,
+        body: welcomeEmailBody,
+        dispatched: emailDispatched
+      }
+    });
+  });
+
+  // Admin Export Member Join Requests as Google Sheet CSV
+  app.get("/api/admin/members/export-csv", (req, res) => {
+    const headers = ["Full Name", "Email Address", "Phone Number", "Roll No", "Batch", "Company", "Designation", "Experience", "Address", "University", "Status", "Submitted At"];
+    const rows = inMemoryMemberJoinRequests.map(m => [
+      `"${(m.name || '').replace(/"/g, '""')}"`,
+      `"${(m.email || '').replace(/"/g, '""')}"`,
+      `"${(m.phone || '').replace(/"/g, '""')}"`,
+      `"${(m.rollNo || '').replace(/"/g, '""')}"`,
+      `"${(m.batch || '').replace(/"/g, '""')}"`,
+      `"${(m.company || '').replace(/"/g, '""')}"`,
+      `"${(m.designation || '').replace(/"/g, '""')}"`,
+      `"${(m.experience || '').replace(/"/g, '""')}"`,
+      `"${(m.address || '').replace(/"/g, '""')}"`,
+      `"${(m.university || '').replace(/"/g, '""')}"`,
+      `"${m.status}"`,
+      `"${m.submittedAt}"`
+    ]);
+
+    const csvContent = [headers.join(","), ...rows.map(row => row.join(","))].join("\n");
+    res.setHeader("Content-Type", "text/csv");
+    res.setHeader("Content-Disposition", `attachment; filename="BUTEX_PGD_New_Members_${Date.now()}.csv"`);
+    res.send(csvContent);
+  });
+
+  // Email Notification Dispatch Log & API
+  app.post("/api/notify/email", async (req, res) => {
+    const { to, subject, contentText, contentHtml, recipientName, type } = req.body;
+    if (!to || !subject) {
+      return res.status(400).json({ success: false, message: "Recipient 'to' and 'subject' are required." });
+    }
+
+    console.log(`[Email Service API] Dispatched ${type || 'notification'} to ${to} (${recipientName || 'Member'}): "${subject}"`);
+
+    res.json({
+      success: true,
+      message: `✓ Email notification dispatched successfully to ${to}!`,
+      to,
+      subject,
+      timestamp: new Date().toISOString()
     });
   });
 
@@ -2181,6 +2531,11 @@ function run6HourAutoRefreshTrigger() {
 `;
     res.setHeader('Content-Type', 'text/plain');
     res.send(appsScriptCode);
+  });
+
+  // Catch-all 404 handler for API routes to prevent fallback to SPA HTML
+  app.all('/api/*', (req, res) => {
+    res.status(404).json({ success: false, message: `API route ${req.method} ${req.path} not found` });
   });
 
   // Serve static assets

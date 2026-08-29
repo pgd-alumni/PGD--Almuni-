@@ -96,6 +96,10 @@ export default function App() {
       let currentAdminJobs: JobPost[] = [];
       let currentEvents: EventItem[] = [];
 
+      let alumniLoadedFromApi = false;
+      let jobsLoadedFromApi = false;
+      let eventsLoadedFromApi = false;
+
       try {
         const [alumniRes, jobsRes, adminJobsRes, eventsRes, statsRes] = await Promise.allSettled([
           fetch('/api/alumni'),
@@ -111,6 +115,7 @@ export default function App() {
             const json = await alumniRes.value.json();
             if (json.data && Array.isArray(json.data) && json.data.length > 0) {
               currentAlumni = sanitizeAlumniData(json.data);
+              alumniLoadedFromApi = true;
             }
           } catch (e) {}
         }
@@ -119,8 +124,9 @@ export default function App() {
         if (jobsRes.status === 'fulfilled' && jobsRes.value.ok) {
           try {
             const json = await jobsRes.value.json();
-            if (json.data && Array.isArray(json.data) && json.data.length > 0) {
+            if (json.data && Array.isArray(json.data)) {
               currentJobs = json.data;
+              jobsLoadedFromApi = true;
             }
           } catch (e) {}
         }
@@ -139,8 +145,9 @@ export default function App() {
         if (eventsRes.status === 'fulfilled' && eventsRes.value.ok) {
           try {
             const json = await eventsRes.value.json();
-            if (json.data && Array.isArray(json.data) && json.data.length > 0) {
+            if (json.data && Array.isArray(json.data)) {
               currentEvents = json.data;
+              eventsLoadedFromApi = true;
             }
           } catch (e) {}
         }
@@ -159,20 +166,20 @@ export default function App() {
       }
 
       // 1. Direct Fallback for Alumni if API failed or returned empty (e.g. Vercel static deployment)
-      if (currentAlumni.length === 0) {
+      if (!alumniLoadedFromApi && currentAlumni.length === 0) {
         currentAlumni = await fetchAlumniDirectFromSheet();
       }
       setAlumniList(currentAlumni);
 
-      // 2. Direct Fallback for Jobs
-      if (currentJobs.length === 0) {
+      // 2. Direct Fallback for Jobs if API was never reached
+      if (!jobsLoadedFromApi && currentJobs.length === 0) {
         currentJobs = getInitialJobs();
       }
       setJobList(currentJobs);
       setAdminJobs(currentAdminJobs.length > 0 ? currentAdminJobs : currentJobs);
 
-      // 3. Direct Fallback for Events
-      if (currentEvents.length === 0) {
+      // 3. Direct Fallback for Events if API was never reached
+      if (!eventsLoadedFromApi && currentEvents.length === 0) {
         currentEvents = getInitialEvents();
       }
       setEvents(currentEvents);

@@ -85,7 +85,10 @@ export const WhapiSettingsModule: React.FC = () => {
     setFetchingGroups(true);
     setGroupsError(null);
     fetch('/api/whapi/fetch-groups')
-      .then(res => res.json())
+      .then(async res => {
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        return res.json();
+      })
       .then(data => {
         if (data.success && Array.isArray(data.groups)) {
           setFetchedGroups(data.groups);
@@ -103,7 +106,10 @@ export const WhapiSettingsModule: React.FC = () => {
   const fetchConfig = () => {
     setLoading(true);
     fetch('/api/whapi/config')
-      .then(res => res.json())
+      .then(async res => {
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        return res.json();
+      })
       .then(data => {
         if (data.success && data.config) {
           const loadedRecipient = data.config.recipient || '';
@@ -123,7 +129,10 @@ export const WhapiSettingsModule: React.FC = () => {
   const fetchLogs = () => {
     setLogsLoading(true);
     fetch('/api/whapi/logs')
-      .then(res => res.json())
+      .then(async res => {
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        return res.json();
+      })
       .then(data => {
         if (data.success) {
           setLogs(data.logs || []);

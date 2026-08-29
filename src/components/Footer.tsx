@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import butexLogo from '../assets/butex-logo.png';
+import { ButexLogo } from './ButexLogo';
 import { Mail, MessageCircle, Globe, Copy, Check, ExternalLink, Youtube, Facebook, Linkedin } from 'lucide-react';
 
 interface FooterProps {
@@ -31,13 +31,7 @@ export const Footer: React.FC<FooterProps> = ({ setActiveTab }) => {
           {/* Col 1: About */}
           <div className="space-y-4 md:col-span-1">
             <div className="flex items-center space-x-3">
-              <div className="w-10 h-10 rounded-full bg-white flex items-center justify-center p-0.5 shadow-md border border-amber-400 shrink-0">
-                <img 
-                  src={butexLogo} 
-                  alt="BUTEX Logo" 
-                  className="w-full h-full object-contain rounded-full"
-                />
-              </div>
+              <ButexLogo sizeClassName="w-10 h-10" />
               <div>
                 <span className="font-bold text-lg text-white block">BUTEX PGD Alumni</span>
                 <span className="text-xs text-amber-400 font-medium">Bangladesh Textile University</span>

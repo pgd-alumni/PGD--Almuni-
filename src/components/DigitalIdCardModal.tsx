@@ -20,6 +20,7 @@ import {
 } from 'lucide-react';
 import { AlumniRecord } from '../types';
 import { AlumniAvatar } from './AlumniAvatar';
+import { ButexLogo } from './ButexLogo';
 
 interface DigitalIdCardModalProps {
   alumni: AlumniRecord;
@@ -310,9 +311,7 @@ END:VCARD`;
         {/* Header Bar */}
         <div className="bg-slate-950 px-6 py-4 border-b border-slate-800 flex items-center justify-between">
           <div className="flex items-center space-x-2.5">
-            <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-amber-400 to-amber-600 flex items-center justify-center font-bold text-slate-950 text-xs shadow-md">
-              PGD
-            </div>
+            <ButexLogo sizeClassName="w-9 h-9" />
             <div>
               <h3 className="font-extrabold text-sm text-white tracking-tight">Official Digital Alumni ID</h3>
               <p className="text-[10px] text-amber-400 font-semibold">BUTEX PGD Alumni Association</p>

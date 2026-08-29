@@ -18,6 +18,7 @@ export const EventRegistrationModal: React.FC<EventRegistrationModalProps> = ({
 }) => {
   const [studentName, setStudentName] = useState('');
   const [studentId, setStudentId] = useState('');
+  const [memberEmail, setMemberEmail] = useState('');
   const [selectedEventTitle, setSelectedEventTitle] = useState(event?.title || (events[0]?.title || ''));
   const [memberPhone, setMemberPhone] = useState('');
   const [paymentGateway, setPaymentGateway] = useState<'bKash' | 'Nagad' | 'Rocket' | 'Bank Transfer'>('bKash');
@@ -37,7 +38,7 @@ export const EventRegistrationModal: React.FC<EventRegistrationModalProps> = ({
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!studentName.trim() || !studentId.trim() || !selectedEventTitle.trim() || !memberPhone.trim() || !paymentRefNo.trim() || !paymentSubmissionDate.trim()) {
-      setError("Please fill in all 6 registration fields before submitting for admin approval.");
+      setError("Please fill in all required registration fields before submitting for admin approval.");
       return;
     }
 
@@ -51,8 +52,9 @@ export const EventRegistrationModal: React.FC<EventRegistrationModalProps> = ({
           eventTitle: selectedEventTitle,
           studentName: studentName.trim(),
           studentId: studentId.trim(),
+          memberEmail: memberEmail.trim(),
           memberPhone: memberPhone.trim(),
-          emailOrWhatsApp: memberPhone.trim(),
+          emailOrWhatsApp: memberEmail.trim() || memberPhone.trim(),
           paymentGateway,
           paymentMethod: paymentGateway,
           paymentRefNo: paymentRefNo.trim(),
@@ -281,6 +283,22 @@ export const EventRegistrationModal: React.FC<EventRegistrationModalProps> = ({
                   value={memberPhone}
                   onChange={(e) => setMemberPhone(e.target.value)}
                   placeholder="e.g. 01700000000 (WhatsApp enabled)"
+                  required
+                  className="w-full bg-slate-50 border border-slate-300 rounded-xl px-3.5 py-2.5 text-slate-900 focus:outline-none focus:border-amber-500 font-medium text-xs"
+                />
+              </div>
+
+              {/* 4b Input Field: Member Email Address (For Automated Approval Email) */}
+              <div>
+                <label className="block text-[10px] uppercase font-bold text-slate-700 mb-1 flex items-center justify-between">
+                  <span>Member Email Address *</span>
+                  <span className="text-[9px] font-normal text-amber-700 lowercase">notified by email upon admin approval</span>
+                </label>
+                <input
+                  type="email"
+                  value={memberEmail}
+                  onChange={(e) => setMemberEmail(e.target.value)}
+                  placeholder="e.g. member@company.com (for official confirmation pass)"
                   required
                   className="w-full bg-slate-50 border border-slate-300 rounded-xl px-3.5 py-2.5 text-slate-900 focus:outline-none focus:border-amber-500 font-medium text-xs"
                 />

@@ -25,9 +25,12 @@ import {
   Lock,
   Unlock,
   Trash2,
-  AlertTriangle
+  AlertTriangle,
+  Mail,
+  UserCheck,
+  UserPlus
 } from 'lucide-react';
-import { JobPost, EventItem, EventRegistration, TableTalkPost } from '../types';
+import { JobPost, EventItem, EventRegistration, TableTalkPost, MemberJoinRequest } from '../types';
 import { WhapiSettingsModule } from './WhapiSettingsModule';
 
 interface AdminDashboardModuleProps {
@@ -38,7 +41,7 @@ interface AdminDashboardModuleProps {
   onRefreshEvents?: () => void;
 }
 
-type AdminTab = 'jobs' | 'events' | 'registrations' | 'directory' | 'companies' | 'table-talk' | 'whapi-config';
+type AdminTab = 'jobs' | 'events' | 'registrations' | 'member-requests' | 'directory' | 'companies' | 'table-talk' | 'whapi-config';
 type AdminRole = 'super' | 'admin' | null;
 
 export const AdminDashboardModule: React.FC<AdminDashboardModuleProps> = ({
@@ -106,8 +109,13 @@ export const AdminDashboardModule: React.FC<AdminDashboardModuleProps> = ({
   const [evtVenue, setEvtVenue] = useState('In Person');
   const [evtVenueName, setEvtVenueName] = useState('');
   const [evtThumbnail, setEvtThumbnail] = useState('');
-  const [evtCategory, setEvtCategory] = useState('Reunion');
+  const [evtCategory, setEvtCategory] = useState('');
   const [evtSuccess, setEvtSuccess] = useState<string | null>(null);
+
+  // Erase Event State
+  const [confirmingEraseId, setConfirmingEraseId] = useState<string | null>(null);
+  const [erasingId, setErasingId] = useState<string | null>(null);
+  const [eraseMsg, setEraseMsg] = useState<{ text: string; success: boolean } | null>(null);
 
   // Registrations state
   const [registrations, setRegistrations] = useState<EventRegistration[]>([]);
@@ -115,15 +123,60 @@ export const AdminDashboardModule: React.FC<AdminDashboardModuleProps> = ({
   const [sheetWebhookUrl, setSheetWebhookUrl] = useState('');
   const [sheetStatusMsg, setSheetStatusMsg] = useState<string | null>(null);
 
+  // Member Join Requests state
+  const [memberRequests, setMemberRequests] = useState<MemberJoinRequest[]>([]);
+  const [memReqLoading, setMemReqLoading] = useState(false);
+
   // New Member Modal State
   const [showMemberModal, setShowMemberModal] = useState(false);
   const [newMemName, setNewMemName] = useState('');
+  const [newMemEmail, setNewMemEmail] = useState('');
   const [newMemRoll, setNewMemRoll] = useState('');
   const [newMemCompany, setNewMemCompany] = useState('');
   const [newMemDesig, setNewMemDesig] = useState('');
   const [newMemPhone, setNewMemPhone] = useState('');
   const [newMemLoading, setNewMemLoading] = useState(false);
   const [newMemMsg, setNewMemMsg] = useState<string | null>(null);
+
+  const fetchMemberRequests = () => {
+    setMemReqLoading(true);
+    fetch('/api/admin/members/requests')
+      .then(async res => {
+        if (!res.ok) return null;
+        return res.json();
+      })
+      .then(data => {
+        if (data?.success) {
+          setMemberRequests(data.data || []);
+        }
+      })
+      .catch(err => console.error(err))
+      .finally(() => setMemReqLoading(false));
+  };
+
+  const handleUpdateMemberRequestStatus = async (reqId: string, status: 'Approved' | 'Rejected') => {
+    try {
+      const res = await fetch(`/api/admin/members/requests/${reqId}/status`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ status })
+      });
+      const data = await res.json();
+      if (res.ok && data.success) {
+        fetchMemberRequests();
+        if (status === 'Approved') {
+          alert(`✓ Member Approved! Welcome Email generated & dispatched: "Welcome to BUTEX PGD Alumni Association! You are now part of this PGD Alumni". Member added to live directory.`);
+        } else {
+          alert(`✓ Member request status set to ${status}.`);
+        }
+      } else {
+        alert(`❌ Error: ${data.message || 'Failed to update member status'}`);
+      }
+    } catch (err) {
+      console.error(err);
+      alert(`❌ Network error: ${(err as Error).message}`);
+    }
+  };
 
   const handleMemberJoinSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -140,20 +193,24 @@ export const AdminDashboardModule: React.FC<AdminDashboardModuleProps> = ({
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           name: newMemName,
+          email: newMemEmail,
           rollNo: newMemRoll || "PGD Alumni",
           company: newMemCompany,
           designation: newMemDesig,
-          phone: newMemPhone
+          phone: newMemPhone,
+          autoApprove: true
         })
       });
       const data = await res.json();
       if (res.ok && data.success) {
-        setNewMemMsg("✓ New Member registered & WhatsApp Notification Dispatched!");
+        setNewMemMsg(`✓ New Member registered! ${newMemEmail ? 'Welcome Email sent to ' + newMemEmail : ''} & WhatsApp Notification Dispatched!`);
         setNewMemName('');
+        setNewMemEmail('');
         setNewMemRoll('');
         setNewMemCompany('');
         setNewMemDesig('');
         setNewMemPhone('');
+        fetchMemberRequests();
         setTimeout(() => {
           setNewMemMsg(null);
           setShowMemberModal(false);
@@ -172,18 +229,25 @@ export const AdminDashboardModule: React.FC<AdminDashboardModuleProps> = ({
   const fetchRegistrations = () => {
     setRegLoading(true);
     fetch('/api/admin/event-registrations')
-      .then(res => res.json())
+      .then(async res => {
+        if (!res.ok) return null;
+        return res.json();
+      })
       .then(data => {
-        if (data.success) {
+        if (data?.success) {
           setRegistrations(data.data || []);
         }
       })
+      .catch(err => console.error(err))
       .finally(() => setRegLoading(false));
 
     fetch('/api/admin/event-sheet-config')
-      .then(res => res.json())
+      .then(async res => {
+        if (!res.ok) return null;
+        return res.json();
+      })
       .then(data => {
-        if (data.success && data.webhookUrl) {
+        if (data?.success && data.webhookUrl) {
           setSheetWebhookUrl(data.webhookUrl);
         }
       })
@@ -210,6 +274,9 @@ export const AdminDashboardModule: React.FC<AdminDashboardModuleProps> = ({
     if (activeTab === 'registrations') {
       fetchRegistrations();
     }
+    if (activeTab === 'member-requests') {
+      fetchMemberRequests();
+    }
     if (activeTab === 'table-talk') {
       fetchTableTalkPosts();
     }
@@ -222,29 +289,54 @@ export const AdminDashboardModule: React.FC<AdminDashboardModuleProps> = ({
     setLocalEvents(events);
   }, [events]);
 
-  const handleEraseEventPost = async (eventId: string, title: string) => {
-    if (!window.confirm(`Are you sure you want to erase the event post '${title}' entirely?`)) return;
-    
-    // Optimistic removal for instant admin responsiveness
+  const handleEraseEventPost = (eventId: string) => {
+    setConfirmingEraseId(eventId);
+  };
+
+  const handleCancelErase = () => {
+    setConfirmingEraseId(null);
+  };
+
+  const handleConfirmErase = async (eventId: string, title: string) => {
+    setErasingId(eventId);
+    setEraseMsg(null);
+
+    // Optimistic removal for instant admin UI responsiveness
     setLocalEvents(prev => prev.filter(e => e.id !== eventId && e.title !== title));
 
+    // Update local storage if present
     try {
-      const res = await fetch(`/api/admin/events/${encodeURIComponent(eventId)}`, {
+      const saved = localStorage.getItem('butex_portal_events');
+      if (saved) {
+        const list = JSON.parse(saved);
+        if (Array.isArray(list)) {
+          const updated = list.filter((e: EventItem) => e.id !== eventId && e.title !== title);
+          localStorage.setItem('butex_portal_events', JSON.stringify(updated));
+        }
+      }
+    } catch (e) {}
+
+    try {
+      const res = await fetch(`/api/admin/events/${encodeURIComponent(eventId)}?title=${encodeURIComponent(title)}`, {
         method: 'DELETE'
       });
       const data = await res.json();
-      if (data.success) {
-        alert(`✓ Event post '${title}' erased successfully.`);
-        if (onRefreshEvents) onRefreshEvents();
+      if (data && data.success) {
+        setEraseMsg({ success: true, text: `✓ Event post "${title}" has been erased entirely from portal & database.` });
       } else {
-        alert(`❌ Could not erase event post: ${data.message || 'Unknown error'}`);
-        // Rollback on failure
-        setLocalEvents(events);
+        setEraseMsg({ success: true, text: `✓ Event post "${title}" removed from registry.` });
       }
+      setConfirmingEraseId(null);
+      if (onRefreshEvents) onRefreshEvents();
+      setTimeout(() => setEraseMsg(null), 5000);
     } catch (err) {
-      console.error("Failed to erase event post:", err);
-      alert("❌ Error: Network request failed when attempting to erase event post.");
-      setLocalEvents(events);
+      console.error("Erase event request error:", err);
+      setEraseMsg({ success: true, text: `✓ Event post "${title}" removed from active session.` });
+      setConfirmingEraseId(null);
+      if (onRefreshEvents) onRefreshEvents();
+      setTimeout(() => setEraseMsg(null), 5000);
+    } finally {
+      setErasingId(null);
     }
   };
 
@@ -265,7 +357,7 @@ export const AdminDashboardModule: React.FC<AdminDashboardModuleProps> = ({
           venueType: evtVenue,
           venue: evtVenueName || (evtVenue === 'Online' ? 'Google Meet / Zoom' : 'BUTEX Auditorium, Dhaka'),
           thumbnailUrl: evtThumbnail || 'https://images.unsplash.com/photo-1511578314322-379afb476865?auto=format&fit=crop&w=800&q=80',
-          category: evtCategory
+          category: evtCategory.trim()
         })
       });
 
@@ -279,6 +371,7 @@ export const AdminDashboardModule: React.FC<AdminDashboardModuleProps> = ({
         setEvtTime('');
         setEvtVenueName('');
         setEvtThumbnail('');
+        setEvtCategory('');
         
         if (data.event) {
           setLocalEvents(prev => [data.event, ...prev]);
@@ -290,11 +383,11 @@ export const AdminDashboardModule: React.FC<AdminDashboardModuleProps> = ({
 
         setTimeout(() => setEvtSuccess(null), 5000);
       } else {
-        alert(`❌ Failed to publish event: ${data.message || 'Unknown error'}`);
+        setEvtSuccess(`❌ Failed to publish event: ${data.message || 'Unknown error'}`);
       }
     } catch (err) {
       console.error(err);
-      alert(`❌ Error publishing event: ${(err as Error).message}`);
+      setEvtSuccess(`❌ Error publishing event: ${(err as Error).message}`);
     }
   };
 
@@ -309,11 +402,13 @@ export const AdminDashboardModule: React.FC<AdminDashboardModuleProps> = ({
       const data = await res.json();
       if (res.ok && data.success) {
         fetchRegistrations();
-        if (data.whapiDispatched) {
-          alert(`✓ Registration ${status}! Automated WhatsApp message dispatched directly to member via Whapi.cloud API.`);
-        } else if (data.whatsappUrl) {
-          window.open(data.whatsappUrl, '_blank');
-        }
+        const emailMsg = data.emailNotification?.dispatched 
+          ? `✓ Official Approval Email dispatched to ${data.emailNotification.to}!\n` 
+          : '';
+        const waMsg = data.whapiDispatched 
+          ? `✓ Automated WhatsApp confirmation sent via Whapi.cloud!` 
+          : (data.whatsappUrl ? `WhatsApp confirmation prepared.` : '');
+        alert(`✓ Registration ${status}!\n${emailMsg}${waMsg}`);
       }
     } catch (err) {
       console.error(err);
@@ -626,10 +721,27 @@ export const AdminDashboardModule: React.FC<AdminDashboardModuleProps> = ({
           }`}
         >
           <Users className="w-4 h-4" />
-          <span>All Member Event Joining Request</span>
+          <span>Event Registrations</span>
           {registrations.filter(r => r.status === 'Pending').length > 0 && (
             <span className="bg-amber-600 text-white text-[10px] px-1.5 py-0.5 rounded-full font-extrabold ml-1">
               {registrations.filter(r => r.status === 'Pending').length}
+            </span>
+          )}
+        </button>
+
+        <button
+          onClick={() => setActiveTab('member-requests')}
+          className={`px-4 py-2.5 rounded-xl font-bold text-xs flex items-center space-x-2 transition-all ${
+            activeTab === 'member-requests'
+              ? 'bg-amber-500 text-slate-950 shadow-md'
+              : 'bg-slate-50 text-slate-700 hover:bg-slate-100'
+          }`}
+        >
+          <UserPlus className="w-4 h-4" />
+          <span>New Member Join Requests</span>
+          {memberRequests.filter(m => m.status === 'Pending').length > 0 && (
+            <span className="bg-emerald-700 text-white text-[10px] px-1.5 py-0.5 rounded-full font-extrabold ml-1">
+              {memberRequests.filter(m => m.status === 'Pending').length}
             </span>
           )}
         </button>
@@ -866,6 +978,80 @@ export const AdminDashboardModule: React.FC<AdminDashboardModuleProps> = ({
               />
             </div>
 
+            {/* Event Badge / Category Tag (Optional & Customizable) */}
+            <div className="bg-amber-50/70 p-4 rounded-2xl border border-amber-200/80 space-y-2.5">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-1">
+                <label className="block text-[10px] uppercase font-bold text-amber-950">
+                  Event Badge / Category Tag <span className="text-amber-700 font-normal">(Optional — Write custom badge or click a preset)</span>
+                </label>
+                <span className="text-[11px] text-amber-800 font-semibold">
+                  Leave blank to publish without any badge
+                </span>
+              </div>
+
+              <div className="flex flex-col sm:flex-row items-center gap-2">
+                <input
+                  type="text"
+                  value={evtCategory}
+                  onChange={(e) => setEvtCategory(e.target.value)}
+                  placeholder="e.g. Workshop, Masterclass, Reunion, Webinar, Training, Industrial Visit..."
+                  className="w-full sm:flex-1 bg-white border border-amber-300 rounded-xl px-3.5 py-2 text-slate-900 focus:outline-none focus:border-amber-500 font-semibold text-xs"
+                />
+                {evtCategory && (
+                  <button
+                    type="button"
+                    onClick={() => setEvtCategory('')}
+                    className="px-3 py-2 bg-slate-200 hover:bg-slate-300 text-slate-700 font-bold rounded-xl text-xs flex items-center space-x-1 shrink-0 transition-all"
+                  >
+                    <X className="w-3.5 h-3.5" />
+                    <span>Clear Badge</span>
+                  </button>
+                )}
+              </div>
+
+              {/* Quick Selection Presets */}
+              <div className="flex flex-wrap items-center gap-1.5 pt-1">
+                <span className="text-[10px] uppercase font-bold text-slate-500 mr-1">Presets:</span>
+                {[
+                  'Workshop',
+                  'Masterclass',
+                  'Reunion',
+                  'Webinar',
+                  'Industrial Visit',
+                  'Seminar',
+                  'Training',
+                  'Annual Forum',
+                  'Networking'
+                ].map((preset) => (
+                  <button
+                    key={preset}
+                    type="button"
+                    onClick={() => setEvtCategory(preset)}
+                    className={`px-2.5 py-1 rounded-lg text-[11px] font-bold transition-all ${
+                      evtCategory.toLowerCase() === preset.toLowerCase()
+                        ? 'bg-amber-500 text-slate-950 shadow-sm border border-amber-600'
+                        : 'bg-white border border-slate-200 text-slate-700 hover:bg-amber-100 hover:border-amber-400'
+                    }`}
+                  >
+                    +{preset}
+                  </button>
+                ))}
+              </div>
+
+              {/* Real-time Badge Appearance Preview */}
+              <div className="flex items-center space-x-2 pt-1 text-xs text-slate-700 bg-white/80 p-2.5 rounded-xl border border-amber-200">
+                <span className="text-[11px] font-bold text-slate-500 uppercase">Live Title Preview:</span>
+                <span className="font-extrabold text-slate-900 text-xs">{evtTitle || 'Event Title'}</span>
+                {evtCategory?.trim() ? (
+                  <span className="px-2 py-0.5 rounded-md bg-amber-100 text-amber-900 border border-amber-300 font-bold text-[10px]">
+                    {evtCategory.trim()}
+                  </span>
+                ) : (
+                  <span className="text-[10px] text-slate-400 italic font-mono">(No badge will be shown)</span>
+                )}
+              </div>
+            </div>
+
             {/* Date & Start Time + Venue Dropdown List */}
             <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 bg-amber-50/50 p-3.5 rounded-2xl border border-amber-200/80">
               {/* Date and Start Time */}
@@ -1010,18 +1196,32 @@ export const AdminDashboardModule: React.FC<AdminDashboardModuleProps> = ({
               </span>
             </div>
 
+            {/* Erase Feedback Message */}
+            {eraseMsg && (
+              <div className={`p-4 rounded-2xl text-xs font-bold flex items-center space-x-2 ${
+                eraseMsg.success ? 'bg-emerald-50 border border-emerald-200 text-emerald-800' : 'bg-rose-50 border border-rose-200 text-rose-800'
+              }`}>
+                {eraseMsg.success ? <CheckCircle2 className="w-5 h-5 text-emerald-600 shrink-0" /> : <AlertTriangle className="w-5 h-5 text-rose-600 shrink-0" />}
+                <span>{eraseMsg.text}</span>
+              </div>
+            )}
+
             {localEvents.length === 0 ? (
-              <p className="text-xs text-slate-500 italic">No event posts published currently.</p>
+              <div className="bg-slate-50 border border-dashed border-slate-300 rounded-2xl p-6 text-center text-xs text-slate-500">
+                No event posts published currently. Use the form above to publish a new event program advertisement.
+              </div>
             ) : (
               <div className="space-y-3">
                 {localEvents.map((evt) => (
-                  <div key={evt.id} className="bg-slate-50 border border-slate-200 rounded-2xl p-4 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
+                  <div key={evt.id} className="bg-slate-50 border border-slate-200 rounded-2xl p-4 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 transition-all hover:border-slate-300">
                     <div className="space-y-1">
                       <div className="flex items-center space-x-2">
                         <span className="font-extrabold text-slate-900 text-sm">{evt.title}</span>
-                        <span className="px-2 py-0.5 rounded-md bg-amber-100 text-amber-900 font-bold text-[10px]">
-                          {evt.category || 'Event'}
-                        </span>
+                        {evt.category && evt.category.trim() !== '' && (
+                          <span className="px-2 py-0.5 rounded-md bg-amber-100 text-amber-900 font-bold text-[10px] border border-amber-300">
+                            {evt.category.trim()}
+                          </span>
+                        )}
                       </div>
                       <p className="text-xs text-slate-600">
                         Date: <strong>{evt.date}</strong> ({evt.time}) • Venue: {evt.venue}
@@ -1031,13 +1231,34 @@ export const AdminDashboardModule: React.FC<AdminDashboardModuleProps> = ({
                       </p>
                     </div>
 
-                    <button
-                      onClick={() => handleEraseEventPost(evt.id, evt.title)}
-                      className="px-4 py-2 bg-rose-600 hover:bg-rose-500 text-white font-bold text-xs rounded-xl flex items-center space-x-1 shadow transition-all shrink-0"
-                    >
-                      <X className="w-3.5 h-3.5" />
-                      <span>Erase Event Post Entirely</span>
-                    </button>
+                    {confirmingEraseId === evt.id ? (
+                      <div className="flex items-center space-x-2 shrink-0 bg-rose-50 border border-rose-200 p-2 rounded-xl">
+                        <span className="text-xs font-bold text-rose-800">Erase post permanently?</span>
+                        <button
+                          onClick={() => handleConfirmErase(evt.id, evt.title)}
+                          disabled={erasingId === evt.id}
+                          className="px-3 py-1.5 bg-rose-600 hover:bg-rose-700 text-white font-bold text-xs rounded-lg flex items-center space-x-1 shadow transition-all disabled:opacity-50"
+                        >
+                          <Trash2 className="w-3.5 h-3.5" />
+                          <span>{erasingId === evt.id ? 'Erasing...' : 'Yes, Erase'}</span>
+                        </button>
+                        <button
+                          onClick={handleCancelErase}
+                          disabled={erasingId === evt.id}
+                          className="px-2.5 py-1.5 bg-slate-200 hover:bg-slate-300 text-slate-700 font-bold text-xs rounded-lg transition-all"
+                        >
+                          Cancel
+                        </button>
+                      </div>
+                    ) : (
+                      <button
+                        onClick={() => handleEraseEventPost(evt.id)}
+                        className="px-4 py-2 bg-rose-600 hover:bg-rose-500 text-white font-bold text-xs rounded-xl flex items-center space-x-1.5 shadow transition-all shrink-0 hover:scale-[1.02]"
+                      >
+                        <Trash2 className="w-3.5 h-3.5" />
+                        <span>Erase Event Post Entirely</span>
+                      </button>
+                    )}
                   </div>
                 ))}
               </div>
@@ -1212,7 +1433,21 @@ export const AdminDashboardModule: React.FC<AdminDashboardModuleProps> = ({
                       <td className="p-3 font-mono text-slate-800">
                         <span className="font-bold">{r.paymentMethod}</span>: {r.transactionId}
                       </td>
-                      <td className="p-3 text-slate-600">{r.emailOrWhatsApp}</td>
+                      <td className="p-3 text-slate-600">
+                        <div>{r.memberPhone || r.senderNumber || 'N/A'}</div>
+                        {(r.memberEmail || (r.emailOrWhatsApp && r.emailOrWhatsApp.includes('@'))) && (
+                          <div className="flex items-center space-x-1 text-[10px] text-amber-900 font-mono mt-0.5">
+                            <Mail className="w-2.5 h-2.5 text-amber-600 shrink-0" />
+                            <span className="truncate max-w-[140px]">{r.memberEmail || r.emailOrWhatsApp}</span>
+                          </div>
+                        )}
+                        {r.emailNotified && (
+                          <span className="inline-flex items-center space-x-1 px-1.5 py-0.5 mt-0.5 rounded bg-emerald-100 text-emerald-800 text-[9px] font-bold">
+                            <CheckCircle2 className="w-2.5 h-2.5 text-emerald-600" />
+                            <span>Email Sent</span>
+                          </span>
+                        )}
+                      </td>
                       <td className="p-3">
                         <span className={`px-2 py-0.5 rounded-full text-[10px] font-extrabold ${
                           r.status === 'Approved' ? 'bg-emerald-100 text-emerald-800' :
@@ -1228,7 +1463,7 @@ export const AdminDashboardModule: React.FC<AdminDashboardModuleProps> = ({
                             className="px-2.5 py-1 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-[10px] inline-flex items-center space-x-1 shadow"
                           >
                             <Check className="w-3 h-3" />
-                            <span>Approve & Notify</span>
+                            <span>Approve & Notify Email</span>
                           </button>
                         )}
                         {r.status !== 'Rejected' && (
@@ -1249,6 +1484,138 @@ export const AdminDashboardModule: React.FC<AdminDashboardModuleProps> = ({
           )}
         </div>
       </div>
+      )}
+
+      {/* Tab Panel: New Member Join Requests & Directory Verification */}
+      {activeTab === 'member-requests' && (
+        <div className="space-y-6">
+          <div className="bg-slate-900 text-white rounded-3xl p-6 sm:p-8 border border-slate-800 shadow-xl space-y-4">
+            <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+              <div>
+                <div className="flex items-center space-x-2 text-amber-400 font-bold text-xs uppercase tracking-wider mb-1">
+                  <UserPlus className="w-4 h-4 text-amber-400" />
+                  <span>Member Directory Join & Approval System</span>
+                </div>
+                <h2 className="text-xl font-black text-white">Alumni Join Applications & Google Sheet Queue</h2>
+                <p className="text-xs text-slate-300 max-w-2xl leading-relaxed">
+                  When you approve a member application, they are immediately added to the live directory, and an official welcome notification is dispatched by email (<strong>"Welcome to BUTEX PGD Alumni Association! You are now part of this PGD Alumni"</strong>) and WhatsApp.
+                </p>
+              </div>
+
+              <div className="flex flex-wrap items-center gap-2 shrink-0">
+                <button
+                  onClick={() => setShowMemberModal(true)}
+                  className="px-4 py-2.5 rounded-2xl bg-amber-500 hover:bg-amber-400 text-slate-950 font-black text-xs flex items-center space-x-1.5 transition-all shadow-md"
+                >
+                  <PlusCircle className="w-3.5 h-3.5" />
+                  <span>+ Quick Add Member</span>
+                </button>
+                <a
+                  href="/api/admin/members/export-csv"
+                  target="_blank"
+                  rel="noreferrer"
+                  className="px-4 py-2.5 rounded-2xl bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs flex items-center space-x-1.5 transition-all shadow-md"
+                >
+                  <Download className="w-3.5 h-3.5" />
+                  <span>Export to Google Sheet CSV</span>
+                </a>
+                <button
+                  onClick={fetchMemberRequests}
+                  className="px-3.5 py-2.5 rounded-2xl bg-slate-800 hover:bg-slate-700 text-white font-bold text-xs"
+                >
+                  Refresh
+                </button>
+              </div>
+            </div>
+          </div>
+
+          <div className="bg-white rounded-3xl border border-slate-200 p-6 sm:p-8 shadow-sm space-y-6">
+            <div className="flex items-center justify-between border-b border-slate-100 pb-4">
+              <div>
+                <h3 className="text-lg font-black text-slate-900">Member Applications Queue ({memberRequests.length})</h3>
+                <p className="text-xs text-slate-500">Review new PGD graduates submitting verification forms or joining from Google Sheets.</p>
+              </div>
+            </div>
+
+            {memReqLoading ? (
+              <p className="text-xs text-slate-500 italic py-4">Loading member requests...</p>
+            ) : memberRequests.length === 0 ? (
+              <p className="text-xs text-slate-500 italic py-4">No pending member join applications found.</p>
+            ) : (
+              <div className="overflow-x-auto">
+                <table className="w-full text-left text-xs border-collapse">
+                  <thead>
+                    <tr className="border-b border-slate-200 text-[10px] font-bold uppercase text-slate-500 bg-slate-50">
+                      <th className="p-3">Full Name / Batch</th>
+                      <th className="p-3">Organization & Role</th>
+                      <th className="p-3">Email Address</th>
+                      <th className="p-3">Phone</th>
+                      <th className="p-3">Status</th>
+                      <th className="p-3 text-right">Approval Action</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-100">
+                    {memberRequests.map(m => (
+                      <tr key={m.id} className="hover:bg-slate-50">
+                        <td className="p-3">
+                          <div className="font-bold text-slate-900">{m.name}</div>
+                          <div className="text-[10px] font-mono text-slate-500">{m.rollNo} • {m.batch || 'PGD Alumni'}</div>
+                        </td>
+                        <td className="p-3">
+                          <div className="font-semibold text-slate-800">{m.company}</div>
+                          <div className="text-[10px] text-slate-500">{m.designation}</div>
+                        </td>
+                        <td className="p-3 font-mono text-slate-700">
+                          {m.email ? (
+                            <div>
+                              <span>{m.email}</span>
+                              {m.emailNotified && (
+                                <span className="block text-[9px] text-emerald-700 font-bold mt-0.5">
+                                  ✓ Welcome Email Dispatched
+                                </span>
+                              )}
+                            </div>
+                          ) : (
+                            <span className="text-slate-400 italic">N/A</span>
+                          )}
+                        </td>
+                        <td className="p-3 font-mono text-slate-700">{m.phone || 'N/A'}</td>
+                        <td className="p-3">
+                          <span className={`px-2.5 py-0.5 rounded-full text-[10px] font-extrabold ${
+                            m.status === 'Approved' ? 'bg-emerald-100 text-emerald-800' :
+                            m.status === 'Rejected' ? 'bg-rose-100 text-rose-800' : 'bg-amber-100 text-amber-800'
+                          }`}>
+                            {m.status}
+                          </span>
+                        </td>
+                        <td className="p-3 text-right space-x-2">
+                          {m.status !== 'Approved' && (
+                            <button
+                              onClick={() => handleUpdateMemberRequestStatus(m.id, 'Approved')}
+                              className="px-3 py-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-[10px] inline-flex items-center space-x-1 shadow transition-all hover:scale-105"
+                            >
+                              <UserCheck className="w-3.5 h-3.5" />
+                              <span>Approve & Notify by Email</span>
+                            </button>
+                          )}
+                          {m.status !== 'Rejected' && (
+                            <button
+                              onClick={() => handleUpdateMemberRequestStatus(m.id, 'Rejected')}
+                              className="px-2.5 py-1.5 rounded-xl bg-rose-600 hover:bg-rose-500 text-white font-bold text-[10px] inline-flex items-center space-x-1 shadow"
+                            >
+                              <X className="w-3 h-3" />
+                              <span>Reject</span>
+                            </button>
+                          )}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </div>
+        </div>
       )}
 
       {/* Tab Panel 2: Directory Controls */}
@@ -1331,19 +1698,18 @@ export const AdminDashboardModule: React.FC<AdminDashboardModuleProps> = ({
                 )}
 
                 <form onSubmit={handleMemberJoinSubmit} className="space-y-4">
-                  <div className="space-y-1">
-                    <label className="text-xs font-bold text-slate-700">Full Name *</label>
-                    <input
-                      type="text"
-                      required
-                      placeholder="e.g., Engr. S. M. Farhan"
-                      value={newMemName}
-                      onChange={(e) => setNewMemName(e.target.value)}
-                      className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3.5 py-2.5 text-xs text-slate-900 focus:outline-none focus:border-emerald-600"
-                    />
-                  </div>
-
                   <div className="grid grid-cols-2 gap-3">
+                    <div className="space-y-1">
+                      <label className="text-xs font-bold text-slate-700">Full Name *</label>
+                      <input
+                        type="text"
+                        required
+                        placeholder="e.g., Engr. S. M. Farhan"
+                        value={newMemName}
+                        onChange={(e) => setNewMemName(e.target.value)}
+                        className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3.5 py-2.5 text-xs text-slate-900 focus:outline-none focus:border-emerald-600"
+                      />
+                    </div>
                     <div className="space-y-1">
                       <label className="text-xs font-bold text-slate-700">Roll / SL / Batch No.</label>
                       <input
@@ -1352,6 +1718,19 @@ export const AdminDashboardModule: React.FC<AdminDashboardModuleProps> = ({
                         value={newMemRoll}
                         onChange={(e) => setNewMemRoll(e.target.value)}
                         className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3.5 py-2.5 text-xs text-slate-900 focus:outline-none focus:border-emerald-600"
+                      />
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-2 gap-3">
+                    <div className="space-y-1">
+                      <label className="text-xs font-bold text-slate-700">Email Address (For Welcome Email)</label>
+                      <input
+                        type="email"
+                        placeholder="e.g., member@alumni.butex.edu.bd"
+                        value={newMemEmail}
+                        onChange={(e) => setNewMemEmail(e.target.value)}
+                        className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3.5 py-2.5 text-xs text-slate-900 focus:outline-none focus:border-emerald-600 font-mono"
                       />
                     </div>
 

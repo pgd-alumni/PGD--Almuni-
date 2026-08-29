@@ -3,6 +3,7 @@ import { QrCode, Search, CheckCircle2, ShieldCheck, Download, AlertCircle, Spark
 import { AlumniRecord } from '../types';
 import { AlumniAvatar } from './AlumniAvatar';
 import { DigitalIdCardModal } from './DigitalIdCardModal';
+import { ButexLogo } from './ButexLogo';
 
 interface DigitalIdModuleProps {
   alumniList: AlumniRecord[];
@@ -101,9 +102,7 @@ export const DigitalIdModule: React.FC<DigitalIdModuleProps> = ({ alumniList }) 
             {/* Card Header */}
             <div className="flex items-center justify-between border-b border-slate-800 pb-4">
               <div className="flex items-center space-x-3">
-                <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-amber-400 to-amber-600 flex items-center justify-center font-bold text-slate-950 text-base shadow-md">
-                  PGD
-                </div>
+                <ButexLogo sizeClassName="w-10 h-10" />
                 <div>
                   <h4 className="font-extrabold text-sm text-white tracking-tight">BUTEX PGD ALUMNI</h4>
                   <p className="text-[10px] text-amber-400 font-medium">Bangladesh Textile University</p>

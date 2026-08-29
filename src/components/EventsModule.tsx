@@ -43,9 +43,16 @@ export const EventsModule: React.FC<EventsModuleProps> = ({ events, onRegisterEv
   // Fetch all reviews on mount
   useEffect(() => {
     fetch('/api/events/all-reviews')
-      .then(res => res.json())
+      .then(async res => {
+        if (!res.ok) return null;
+        const contentType = res.headers.get('content-type') || '';
+        if (contentType.includes('application/json')) {
+          return res.json();
+        }
+        return null;
+      })
       .then(data => {
-        if (data.success && Array.isArray(data.data)) {
+        if (data?.success && Array.isArray(data.data)) {
           const mapped: Record<string, EventReview[]> = {};
           data.data.forEach((rev: EventReview) => {
             if (!mapped[rev.eventId]) mapped[rev.eventId] = [];
@@ -84,11 +91,19 @@ export const EventsModule: React.FC<EventsModuleProps> = ({ events, onRegisterEv
     } else {
       setExpandedEventId(eventId);
       setSuccessMessage(null);
+      if (!eventId) return;
       // Fetch fresh reviews for this event
-      fetch(`/api/events/${eventId}/reviews`)
-        .then(res => res.json())
+      fetch(`/api/events/${encodeURIComponent(eventId)}/reviews`)
+        .then(async res => {
+          if (!res.ok) return null;
+          const contentType = res.headers.get('content-type') || '';
+          if (contentType.includes('application/json')) {
+            return res.json();
+          }
+          return null;
+        })
         .then(data => {
-          if (data.success) {
+          if (data?.success && Array.isArray(data.data)) {
             setReviewsMap(prev => ({ ...prev, [eventId]: data.data }));
           }
         })
@@ -98,13 +113,13 @@ export const EventsModule: React.FC<EventsModuleProps> = ({ events, onRegisterEv
 
   const handleSubmitReview = async (e: React.FormEvent, eventId: string) => {
     e.preventDefault();
-    if (!reviewComment.trim()) return;
+    if (!eventId || !reviewComment.trim()) return;
 
     setIsSubmitting(true);
     setSuccessMessage(null);
 
     try {
-      const res = await fetch(`/api/events/${eventId}/reviews`, {
+      const res = await fetch(`/api/events/${encodeURIComponent(eventId)}/reviews`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -115,8 +130,11 @@ export const EventsModule: React.FC<EventsModuleProps> = ({ events, onRegisterEv
         })
       });
 
+      if (!res.ok) {
+        throw new Error("Failed to submit review");
+      }
       const data = await res.json();
-      if (res.ok && data.success && data.review) {
+      if (data.success && data.review) {
         setReviewsMap(prev => ({
           ...prev,
           [eventId]: [data.review, ...(prev[eventId] || [])]
@@ -208,9 +226,16 @@ export const EventsModule: React.FC<EventsModuleProps> = ({ events, onRegisterEv
                 
                 {/* Box 1: Event Title */}
                 <div className="bg-slate-50 border border-slate-200 rounded-xl p-3 shadow-xs">
-                  <h3 className="text-xs sm:text-sm font-extrabold text-slate-900 leading-snug">
-                    <span className="font-extrabold text-slate-900">Event Title : </span>
-                    <span className="font-semibold text-slate-800">{evt.title}</span>
+                  <h3 className="text-xs sm:text-sm font-extrabold text-slate-900 leading-snug flex flex-wrap items-center gap-2">
+                    <span>
+                      <span className="font-extrabold text-slate-900">Event Title : </span>
+                      <span className="font-semibold text-slate-800">{evt.title}</span>
+                    </span>
+                    {evt.category && evt.category.trim() !== '' && (
+                      <span className="px-2 py-0.5 rounded-md bg-amber-100 text-amber-900 border border-amber-300 font-bold text-[10px]">
+                        {evt.category.trim()}
+                      </span>
+                    )}
                   </h3>
                 </div>
 
