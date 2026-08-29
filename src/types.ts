@@ -175,6 +175,25 @@ export interface TableTalkPost {
   reactions?: { [type: string]: number };
 }
 
+export interface PartnerCompany {
+  id: string;
+  name: string;
+  sector: string; // e.g. 'Garments & RMG', 'Textile Spinning & Weaving', 'Buying House & Sourcing', 'Dyeing & Finishing', 'Brand Liaison Office', 'Apparel Accessories', 'Testing & Compliance', 'IT & Automation'
+  location?: string;
+  headOffice?: string;
+  website?: string;
+  logoUrl?: string;
+  contactPerson?: string;
+  contactDesignation?: string;
+  contactEmail?: string;
+  contactPhone?: string;
+  partnershipType?: 'Corporate Partner' | 'Recruiting Partner' | 'MoU Signed' | 'Alumni Employer' | 'Industry Sponsor' | string;
+  description?: string;
+  employeeCountRange?: string; // e.g. '500-1000', '5000+'
+  createdAt?: string;
+  updatedAt?: string;
+}
+
 export interface MentorProfile {
   id: string;
   name: string;

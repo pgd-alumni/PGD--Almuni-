@@ -184,6 +184,25 @@ interface TableTalkPost {
   reviews?: TableTalkReview[];
 }
 
+interface PartnerCompany {
+  id: string;
+  name: string;
+  sector: string;
+  location?: string;
+  headOffice?: string;
+  website?: string;
+  logoUrl?: string;
+  contactPerson?: string;
+  contactDesignation?: string;
+  contactEmail?: string;
+  contactPhone?: string;
+  partnershipType?: string;
+  description?: string;
+  employeeCountRange?: string;
+  createdAt?: string;
+  updatedAt?: string;
+}
+
 interface WhapiConfig {
   token: string;
   apiUrl: string;
@@ -750,6 +769,147 @@ const defaultEventReviews: EventReview[] = [
 
 let inMemoryEventReviews: EventReview[] = loadPersistedData<EventReview[]>('event_reviews.json', defaultEventReviews);
 
+export const defaultPartnerCompanies: PartnerCompany[] = [
+  {
+    id: "COMP-001",
+    name: "Epic Group",
+    sector: "Garments & RMG",
+    location: "Dhaka & Gazipur",
+    headOffice: "House 14, Road 11, Sector 4, Uttara, Dhaka",
+    website: "https://www.epicgroup.global",
+    logoUrl: "https://images.unsplash.com/photo-1486406146926-c627a92ad1ab?auto=format&fit=crop&w=300&q=80",
+    contactPerson: "Engr. Monirul Islam",
+    contactDesignation: "General Manager (Operations)",
+    contactEmail: "careers@epicgroup.global",
+    contactPhone: "+8801711000001",
+    partnershipType: "Corporate Partner",
+    description: "Leading global multinational garment manufacturing conglomerate with extensive state-of-the-art facilities across Bangladesh, Jordan, and Ethiopia.",
+    employeeCountRange: "10,000+",
+    createdAt: new Date().toISOString()
+  },
+  {
+    id: "COMP-002",
+    name: "Ha-Meem Group",
+    sector: "Garments & RMG",
+    location: "Tejgaon & Ashulia, Dhaka",
+    headOffice: "387 Tejgaon I/A, Dhaka-1208",
+    website: "http://www.hameemgroup.com",
+    logoUrl: "https://images.unsplash.com/photo-1542744173-8e7e53415bb0?auto=format&fit=crop&w=300&q=80",
+    contactPerson: "Md. Tanvir Hossain",
+    contactDesignation: "Head of Talent Acquisition & HR",
+    contactEmail: "hr@hameemgroup.com",
+    contactPhone: "+8801711000002",
+    partnershipType: "Recruiting Partner",
+    description: "One of the largest denim and woven garment exporters from Bangladesh, employing numerous BUTEX PGD graduates in IE, Merchandising, and Quality operations.",
+    employeeCountRange: "50,000+",
+    createdAt: new Date().toISOString()
+  },
+  {
+    id: "COMP-003",
+    name: "DBL Group",
+    sector: "Textile Spinning & Weaving",
+    location: "Kashimpur, Gazipur",
+    headOffice: "BGMEA Complex, 23/1 Panpath, Dhaka",
+    website: "https://www.dbl-group.com",
+    logoUrl: "https://images.unsplash.com/photo-1497366216548-37526070297c?auto=format&fit=crop&w=300&q=80",
+    contactPerson: "Sharmin Sultana",
+    contactDesignation: "Director - Sustainable Operations",
+    contactEmail: "info@dbl-group.com",
+    contactPhone: "+8801711000003",
+    partnershipType: "MoU Signed",
+    description: "Diversified conglomerate with vertically integrated facilities in knitting, dyeing, spinning, garmenting, and sustainability leadership.",
+    employeeCountRange: "40,000+",
+    createdAt: new Date().toISOString()
+  },
+  {
+    id: "COMP-004",
+    name: "Beximco Textiles & Apparels",
+    sector: "Textile Spinning & Weaving",
+    location: "Kashimpur, Gazipur",
+    headOffice: "BEXIMCO Industrial Park, Sarabo, Kashimpur, Gazipur",
+    website: "https://www.beximco.com",
+    logoUrl: "https://images.unsplash.com/photo-1486406146926-c627a92ad1ab?auto=format&fit=crop&w=300&q=80",
+    contactPerson: "Engr. Asaduzzaman",
+    contactDesignation: "Vice President - Apparel Division",
+    contactEmail: "beximcoapparel@beximco.net",
+    contactPhone: "+8801711000004",
+    partnershipType: "Corporate Partner",
+    description: "Pioneering industrial powerhouse in fashion, yarn spinning, woven fabric finishing, and cutting-edge garment manufacturing.",
+    employeeCountRange: "25,000+",
+    createdAt: new Date().toISOString()
+  },
+  {
+    id: "COMP-005",
+    name: "Square Fashions & Textiles",
+    sector: "Garments & RMG",
+    location: "Valuka, Mymensingh & Gazipur",
+    headOffice: "Square Centre, 48 Mohakhali C/A, Dhaka",
+    website: "https://www.squaretextiles.com",
+    logoUrl: "https://images.unsplash.com/photo-1542744173-8e7e53415bb0?auto=format&fit=crop&w=300&q=80",
+    contactPerson: "Engr. Mahbubur Rahman",
+    contactDesignation: "Senior GM (Production & IE)",
+    contactEmail: "textiles@squaregroup.com",
+    contactPhone: "+8801711000005",
+    partnershipType: "MoU Signed",
+    description: "Benchmark for ethics, employee welfare, premium circular knitting, eco-friendly dyeing, and global export excellence.",
+    employeeCountRange: "15,000+",
+    createdAt: new Date().toISOString()
+  },
+  {
+    id: "COMP-006",
+    name: "Epyllion Group",
+    sector: "Garments & RMG",
+    location: "Mirpur & Narayanganj",
+    headOffice: "NINAKABBO, 227/A Tejgaon-Gulshan Link Road, Dhaka",
+    website: "https://www.epylliongroup.com",
+    logoUrl: "https://images.unsplash.com/photo-1497366216548-37526070297c?auto=format&fit=crop&w=300&q=80",
+    contactPerson: "Sheikh Shafiul Alam",
+    contactDesignation: "GM - Human Capital Management",
+    contactEmail: "epyllion@epylliongroup.com",
+    contactPhone: "+8801711000006",
+    partnershipType: "Recruiting Partner",
+    description: "Renowned apparel and textile enterprise celebrated for human capital development, high-end knitwear, and brand partnerships.",
+    employeeCountRange: "20,000+",
+    createdAt: new Date().toISOString()
+  },
+  {
+    id: "COMP-007",
+    name: "Apex Holdings Ltd.",
+    sector: "Garments & RMG",
+    location: "Gazipur & Savar",
+    headOffice: "Rupayan Golden Age, 99 Gulshan Avenue, Dhaka",
+    website: "http://www.apexholdings.com",
+    logoUrl: "https://images.unsplash.com/photo-1486406146926-c627a92ad1ab?auto=format&fit=crop&w=300&q=80",
+    contactPerson: "Engr. Tanvir Ahmed",
+    contactDesignation: "Assistant General Manager (Supply Chain)",
+    contactEmail: "contact@apexholdings.com",
+    contactPhone: "+8801711000007",
+    partnershipType: "Alumni Employer",
+    description: "Pioneering exporter in knitwear, yarns, footwear, and automated cutting solutions with strong alumni executive leadership.",
+    employeeCountRange: "18,000+",
+    createdAt: new Date().toISOString()
+  },
+  {
+    id: "COMP-008",
+    name: "Decathlon Bangladesh",
+    sector: "Brand Liaison Office",
+    location: "Gulshan, Dhaka",
+    headOffice: "Plot 3, Road 104, Block CEN(A), Gulshan 2, Dhaka",
+    website: "https://www.decathlon.com.bd",
+    logoUrl: "https://images.unsplash.com/photo-1542744173-8e7e53415bb0?auto=format&fit=crop&w=300&q=80",
+    contactPerson: "Nazmul Huda",
+    contactDesignation: "Country Sourcing & Quality Leader",
+    contactEmail: "bd.recruitment@decathlon.com",
+    contactPhone: "+8801711000008",
+    partnershipType: "Corporate Partner",
+    description: "French sports goods giant sourcing millions of sustainable activewear and technical textile units from Bangladesh.",
+    employeeCountRange: "1,000-5,000",
+    createdAt: new Date().toISOString()
+  }
+];
+
+let inMemoryCompanies: PartnerCompany[] = loadPersistedData<PartnerCompany[]>('companies.json', defaultPartnerCompanies);
+
 // Active OTP store (phone/email -> OTP string)
 const activeOtps: Record<string, { code: string; expiresAt: number }> = {};
 
@@ -1138,7 +1298,132 @@ async function startServer() {
     }
   });
 
-  // 3. Job Portal List
+  // 3. Companies / Partner Directory Endpoints
+  app.get("/api/companies", async (req, res) => {
+    try {
+      const alumni = await fetchAndParseAlumni();
+      // Count alumni per company
+      const companyCountMap = new Map<string, number>();
+      alumni.forEach(a => {
+        const comp = (a.company || "").trim().toLowerCase();
+        if (comp) {
+          companyCountMap.set(comp, (companyCountMap.get(comp) || 0) + 1);
+        }
+      });
+
+      const enrichedCompanies = inMemoryCompanies.map(c => {
+        const cNameLower = c.name.toLowerCase().trim();
+        let directCount = companyCountMap.get(cNameLower) || 0;
+        if (directCount === 0) {
+          // Check partial match
+          for (const [name, count] of companyCountMap.entries()) {
+            if (name.includes(cNameLower) || cNameLower.includes(name)) {
+              directCount += count;
+            }
+          }
+        }
+        return {
+          ...c,
+          alumniCount: directCount
+        };
+      });
+
+      res.json({ success: true, count: enrichedCompanies.length, data: enrichedCompanies });
+    } catch (err: any) {
+      res.json({ success: true, count: inMemoryCompanies.length, data: inMemoryCompanies });
+    }
+  });
+
+  // Admin & Coding Admin Add Partner Company
+  app.post("/api/admin/companies", (req, res) => {
+    const body = req.body;
+    if (!body.name || !body.name.trim()) {
+      return res.status(400).json({ success: false, message: "Company Name is required." });
+    }
+
+    const newCompany: PartnerCompany = {
+      id: `COMP-${Date.now().toString().slice(-4)}`,
+      name: body.name.trim(),
+      sector: body.sector || "Garments & RMG",
+      location: body.location || "Dhaka, Bangladesh",
+      headOffice: body.headOffice || "",
+      website: body.website || "",
+      logoUrl: body.logoUrl || "https://images.unsplash.com/photo-1486406146926-c627a92ad1ab?auto=format&fit=crop&w=300&q=80",
+      contactPerson: body.contactPerson || "",
+      contactDesignation: body.contactDesignation || "",
+      contactEmail: body.contactEmail || "",
+      contactPhone: body.contactPhone || "",
+      partnershipType: body.partnershipType || "Corporate Partner",
+      description: body.description || "",
+      employeeCountRange: body.employeeCountRange || "1,000-5,000",
+      createdAt: new Date().toISOString()
+    };
+
+    inMemoryCompanies.unshift(newCompany);
+    savePersistedData('companies.json', inMemoryCompanies);
+
+    res.json({
+      success: true,
+      message: `Company "${newCompany.name}" added successfully!`,
+      data: newCompany
+    });
+  });
+
+  // Admin & Coding Admin Update Partner Company
+  app.put("/api/admin/companies/:id", (req, res) => {
+    const { id } = req.params;
+    const body = req.body;
+    const idx = inMemoryCompanies.findIndex(c => c.id === id);
+
+    if (idx === -1) {
+      return res.status(404).json({ success: false, message: "Company not found" });
+    }
+
+    inMemoryCompanies[idx] = {
+      ...inMemoryCompanies[idx],
+      name: body.name !== undefined ? body.name.trim() : inMemoryCompanies[idx].name,
+      sector: body.sector !== undefined ? body.sector : inMemoryCompanies[idx].sector,
+      location: body.location !== undefined ? body.location : inMemoryCompanies[idx].location,
+      headOffice: body.headOffice !== undefined ? body.headOffice : inMemoryCompanies[idx].headOffice,
+      website: body.website !== undefined ? body.website : inMemoryCompanies[idx].website,
+      logoUrl: body.logoUrl !== undefined ? body.logoUrl : inMemoryCompanies[idx].logoUrl,
+      contactPerson: body.contactPerson !== undefined ? body.contactPerson : inMemoryCompanies[idx].contactPerson,
+      contactDesignation: body.contactDesignation !== undefined ? body.contactDesignation : inMemoryCompanies[idx].contactDesignation,
+      contactEmail: body.contactEmail !== undefined ? body.contactEmail : inMemoryCompanies[idx].contactEmail,
+      contactPhone: body.contactPhone !== undefined ? body.contactPhone : inMemoryCompanies[idx].contactPhone,
+      partnershipType: body.partnershipType !== undefined ? body.partnershipType : inMemoryCompanies[idx].partnershipType,
+      description: body.description !== undefined ? body.description : inMemoryCompanies[idx].description,
+      employeeCountRange: body.employeeCountRange !== undefined ? body.employeeCountRange : inMemoryCompanies[idx].employeeCountRange,
+      updatedAt: new Date().toISOString()
+    };
+
+    savePersistedData('companies.json', inMemoryCompanies);
+
+    res.json({
+      success: true,
+      message: `Company "${inMemoryCompanies[idx].name}" updated successfully!`,
+      data: inMemoryCompanies[idx]
+    });
+  });
+
+  // Admin & Coding Admin Delete Partner Company
+  app.delete("/api/admin/companies/:id", (req, res) => {
+    const { id } = req.params;
+    const idx = inMemoryCompanies.findIndex(c => c.id === id);
+    if (idx === -1) {
+      return res.status(404).json({ success: false, message: "Company not found" });
+    }
+
+    const removed = inMemoryCompanies.splice(idx, 1)[0];
+    savePersistedData('companies.json', inMemoryCompanies);
+
+    res.json({
+      success: true,
+      message: `Company "${removed.name}" deleted successfully!`
+    });
+  });
+
+  // 4. Job Portal List
   app.get("/api/jobs", (req, res) => {
     // Refresh & filter expired jobs (e.g. >30 days or passed deadline)
     const now = new Date();

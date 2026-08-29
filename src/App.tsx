@@ -389,6 +389,11 @@ export default function App() {
                   onDeleteJob={handleDeleteJob}
                   events={events}
                   onRefreshEvents={loadData}
+                  alumniList={alumniList}
+                  onSelectCompany={(comp) => {
+                    setSearchQuery(comp);
+                    setActiveTab('directory');
+                  }}
                 />
               )}
 

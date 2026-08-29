@@ -30,8 +30,9 @@ import {
   UserCheck,
   UserPlus
 } from 'lucide-react';
-import { JobPost, EventItem, EventRegistration, TableTalkPost, MemberJoinRequest } from '../types';
+import { JobPost, EventItem, EventRegistration, TableTalkPost, MemberJoinRequest, AlumniRecord } from '../types';
 import { WhapiSettingsModule } from './WhapiSettingsModule';
+import { AdminCompaniesModule } from './AdminCompaniesModule';
 
 interface AdminDashboardModuleProps {
   adminJobs: JobPost[];
@@ -39,6 +40,8 @@ interface AdminDashboardModuleProps {
   onDeleteJob?: (id: string, title: string) => void;
   events?: EventItem[];
   onRefreshEvents?: () => void;
+  alumniList?: AlumniRecord[];
+  onSelectCompany?: (company: string) => void;
 }
 
 type AdminTab = 'jobs' | 'events' | 'registrations' | 'member-requests' | 'directory' | 'companies' | 'table-talk' | 'whapi-config';
@@ -49,7 +52,9 @@ export const AdminDashboardModule: React.FC<AdminDashboardModuleProps> = ({
   onUpdateJobStatus,
   onDeleteJob,
   events = [],
-  onRefreshEvents
+  onRefreshEvents,
+  alumniList = [],
+  onSelectCompany
 }) => {
   const [role, setRole] = useState<AdminRole>(null);
   const [unlocked, setUnlocked] = useState(false);
@@ -57,9 +62,9 @@ export const AdminDashboardModule: React.FC<AdminDashboardModuleProps> = ({
   const [passcodeError, setPasscodeError] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState<AdminTab>('jobs');
 
-  // Guard: Automatically redirect non-super admins away from super-admin-only tabs
+  // Guard: Automatically redirect non-super admins away from super-admin-only tabs (whapi-config)
   useEffect(() => {
-    if (role === 'admin' && (activeTab === 'companies' || activeTab === 'whapi-config')) {
+    if (role === 'admin' && activeTab === 'whapi-config') {
       setActiveTab('jobs');
     }
   }, [role, activeTab]);
@@ -686,19 +691,17 @@ export const AdminDashboardModule: React.FC<AdminDashboardModuleProps> = ({
           <span>Alumni Directory Controls</span>
         </button>
 
-        {role === 'super' && (
-          <button
-            onClick={() => setActiveTab('companies')}
-            className={`px-4 py-2.5 rounded-xl font-bold text-xs flex items-center space-x-2 transition-all ${
-              activeTab === 'companies'
-                ? 'bg-amber-500 text-slate-950 shadow-md'
-                : 'bg-slate-50 text-slate-700 hover:bg-slate-100'
-            }`}
-          >
-            <Building2 className="w-4 h-4" />
-            <span>Partner Companies</span>
-          </button>
-        )}
+        <button
+          onClick={() => setActiveTab('companies')}
+          className={`px-4 py-2.5 rounded-xl font-bold text-xs flex items-center space-x-2 transition-all ${
+            activeTab === 'companies'
+              ? 'bg-amber-500 text-slate-950 shadow-md'
+              : 'bg-slate-50 text-slate-700 hover:bg-slate-100'
+          }`}
+        >
+          <Building2 className="w-4 h-4" />
+          <span>Partner Companies</span>
+        </button>
 
         <button
           onClick={() => setActiveTab('events')}
@@ -1795,20 +1798,13 @@ export const AdminDashboardModule: React.FC<AdminDashboardModuleProps> = ({
         </div>
       )}
 
-      {/* Tab Panel 3: Companies */}
-      {activeTab === 'companies' && role === 'super' && (
-        <div className="bg-white rounded-3xl border border-slate-200 p-8 shadow-sm space-y-4">
-          <div className="flex items-center space-x-3">
-            <Building2 className="w-6 h-6 text-amber-600" />
-            <h2 className="text-lg font-bold text-slate-900">Partner & Employer Companies (227+)</h2>
-          </div>
-          <p className="text-xs text-slate-600 leading-relaxed">
-            Review and organize corporate partners, buying houses, and garment manufacturing affiliations associated with BUTEX alumni.
-          </p>
-          <div className="p-4 bg-amber-50/50 rounded-2xl border border-amber-200 text-xs text-amber-900 font-medium">
-            💡 Corporate partner records are auto-indexed directly from verified alumni employment profiles.
-          </div>
-        </div>
+      {/* Tab Panel 3: Companies (Admin & Coding Admin Partner Companies Manager) */}
+      {activeTab === 'companies' && (
+        <AdminCompaniesModule
+          alumniList={alumniList}
+          role={role}
+          onSelectCompany={onSelectCompany}
+        />
       )}
 
       {/* Tab Panel: Table Talk Moderation */}

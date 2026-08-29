@@ -1,6 +1,6 @@
-import React, { useState, useMemo } from 'react';
-import { Building2, Users, Search, ArrowRight, MapPin, Sparkles } from 'lucide-react';
-import { AlumniRecord } from '../types';
+import React, { useState, useEffect, useMemo } from 'react';
+import { Building2, Users, Search, ArrowRight, MapPin, Sparkles, Globe, ExternalLink, ShieldCheck } from 'lucide-react';
+import { AlumniRecord, PartnerCompany } from '../types';
 
 interface CompanyDirectoryModuleProps {
   alumniList: AlumniRecord[];
@@ -15,8 +15,20 @@ export const CompanyDirectoryModule: React.FC<CompanyDirectoryModuleProps> = ({
 }) => {
   const [searchFilter, setSearchFilter] = useState('');
   const [viewMode, setViewMode] = useState<'grid' | 'list'>('grid');
+  const [partnerCompanies, setPartnerCompanies] = useState<PartnerCompany[]>([]);
 
-  // Group alumni by company
+  useEffect(() => {
+    fetch('/api/companies')
+      .then(res => res.json())
+      .then(data => {
+        if (data.success && Array.isArray(data.data)) {
+          setPartnerCompanies(data.data);
+        }
+      })
+      .catch(() => {});
+  }, []);
+
+  // Group alumni by company and blend with curated partner company database
   const companyGroups = useMemo(() => {
     const map = new Map<string, AlumniRecord[]>();
     alumniList.forEach(alumni => {
@@ -28,18 +40,54 @@ export const CompanyDirectoryModule: React.FC<CompanyDirectoryModuleProps> = ({
       map.get(comp)!.push(alumni);
     });
 
-    const result = Array.from(map.entries()).map(([companyName, members]) => ({
-      companyName,
-      count: members.length,
-      members,
-      locations: Array.from(new Set(members.map(m => m.city).filter(Boolean))),
-    })).sort((a, b) => b.count - a.count);
+    const partnerMap = new Map<string, PartnerCompany>();
+    partnerCompanies.forEach(pc => {
+      partnerMap.set(pc.name.toLowerCase().trim(), pc);
+    });
+
+    // Merge companies from alumni records + curated partner companies
+    const allCompanyNames = new Set<string>();
+    Array.from(map.keys()).forEach(n => allCompanyNames.add(n));
+    partnerCompanies.forEach(pc => allCompanyNames.add(pc.name));
+
+    const result = Array.from(allCompanyNames).map(companyName => {
+      const cNameLower = companyName.toLowerCase().trim();
+      let members = map.get(companyName) || [];
+      if (members.length === 0) {
+        for (const [k, v] of map.entries()) {
+          if (k.toLowerCase().includes(cNameLower) || cNameLower.includes(k.toLowerCase())) {
+            members = v;
+            break;
+          }
+        }
+      }
+
+      // Check partner metadata
+      const partnerMeta = partnerMap.get(cNameLower) || partnerCompanies.find(p => p.name.toLowerCase().includes(cNameLower) || cNameLower.includes(p.name.toLowerCase()));
+
+      return {
+        companyName,
+        count: members.length,
+        members,
+        locations: partnerMeta?.location 
+          ? [partnerMeta.location] 
+          : Array.from(new Set(members.map(m => m.city).filter(Boolean))),
+        partnerMeta
+      };
+    }).sort((a, b) => {
+      // Prioritize partner companies or higher alumni count
+      if (a.partnerMeta && !b.partnerMeta) return -1;
+      if (!a.partnerMeta && b.partnerMeta) return 1;
+      return b.count - a.count;
+    });
 
     return result;
-  }, [alumniList]);
+  }, [alumniList, partnerCompanies]);
 
   const filteredCompanies = companyGroups.filter(c => 
-    c.companyName.toLowerCase().includes(searchFilter.toLowerCase())
+    c.companyName.toLowerCase().includes(searchFilter.toLowerCase()) ||
+    (c.partnerMeta?.sector && c.partnerMeta.sector.toLowerCase().includes(searchFilter.toLowerCase())) ||
+    (c.locations && c.locations.some(l => l.toLowerCase().includes(searchFilter.toLowerCase())))
   );
 
   return (
@@ -101,116 +149,186 @@ export const CompanyDirectoryModule: React.FC<CompanyDirectoryModuleProps> = ({
       {viewMode === 'grid' ? (
         /* Companies Grid View */
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
-          {filteredCompanies.map((group) => (
-            <div
-              key={group.companyName}
-              className="bg-white rounded-2xl border border-slate-200 p-6 shadow-sm hover:shadow-xl hover:border-amber-400 transition-all flex flex-col justify-between space-y-4"
-            >
-              <div className="space-y-3">
-                <div className="flex items-start justify-between gap-3">
-                  <div className="w-12 h-12 rounded-xl bg-slate-900 text-amber-400 flex items-center justify-center font-extrabold text-lg shrink-0">
-                    <Building2 className="w-6 h-6" />
-                  </div>
-                  <span className="px-3 py-1 rounded-full bg-amber-100 text-amber-900 text-xs font-extrabold">
-                    {group.count} Alumni {group.count === 1 ? 'Member' : 'Members'}
-                  </span>
-                </div>
+          {filteredCompanies.map((group) => {
+            const logo = group.partnerMeta?.logoUrl;
+            const sector = group.partnerMeta?.sector;
+            const partnership = group.partnerMeta?.partnershipType;
+            const website = group.partnerMeta?.website;
 
-                <div>
-                  <h3 className="font-bold text-slate-900 text-lg leading-snug">{group.companyName}</h3>
-                  {group.locations.length > 0 && (
-                    <p className="text-xs text-slate-500 flex items-center gap-1 mt-1">
-                      <MapPin className="w-3.5 h-3.5 text-slate-400" />
-                      <span>{group.locations.join(', ')}</span>
-                    </p>
+            return (
+              <div
+                key={group.companyName}
+                className="bg-white rounded-2xl border border-slate-200 p-6 shadow-sm hover:shadow-xl hover:border-amber-400 transition-all flex flex-col justify-between space-y-4"
+              >
+                <div className="space-y-3">
+                  <div className="flex items-start justify-between gap-3">
+                    {logo ? (
+                      <img 
+                        src={logo} 
+                        alt={group.companyName} 
+                        className="w-12 h-12 rounded-xl object-cover border border-slate-200 bg-slate-50 shrink-0"
+                        onError={(e) => {
+                          (e.currentTarget as HTMLElement).style.display = 'none';
+                        }}
+                      />
+                    ) : (
+                      <div className="w-12 h-12 rounded-xl bg-slate-900 text-amber-400 flex items-center justify-center font-extrabold text-lg shrink-0">
+                        <Building2 className="w-6 h-6" />
+                      </div>
+                    )}
+
+                    <div className="flex flex-col items-end gap-1">
+                      {partnership && (
+                        <span className="px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-800 text-[10px] font-extrabold border border-emerald-200">
+                          {partnership}
+                        </span>
+                      )}
+                      <span className="px-2.5 py-0.5 rounded-full bg-amber-100 text-amber-900 text-[11px] font-extrabold">
+                        {group.count} Alumni {group.count === 1 ? 'Member' : 'Members'}
+                      </span>
+                    </div>
+                  </div>
+
+                  <div>
+                    <h3 className="font-bold text-slate-900 text-lg leading-snug flex items-center gap-1.5">
+                      <span>{group.companyName}</span>
+                      {website && (
+                        <a 
+                          href={website.startsWith('http') ? website : `https://${website}`}
+                          target="_blank"
+                          rel="noreferrer"
+                          className="text-slate-400 hover:text-amber-600"
+                        >
+                          <ExternalLink className="w-3.5 h-3.5" />
+                        </a>
+                      )}
+                    </h3>
+                    {sector && (
+                      <p className="text-[11px] font-semibold text-slate-500">{sector}</p>
+                    )}
+                    {group.locations.length > 0 && (
+                      <p className="text-xs text-slate-500 flex items-center gap-1 mt-1">
+                        <MapPin className="w-3.5 h-3.5 text-slate-400" />
+                        <span>{group.locations.join(', ')}</span>
+                      </p>
+                    )}
+                  </div>
+
+                  {group.members.length > 0 && (
+                    <div className="space-y-1 pt-2 border-t border-slate-100">
+                      <span className="text-[10px] uppercase font-bold text-slate-400 block">Key Representatives</span>
+                      <div className="space-y-1">
+                        {group.members.slice(0, 3).map(m => (
+                          <div key={m.id} className="text-xs text-slate-700 flex items-center justify-between">
+                            <span className="font-medium truncate">{m.name}</span>
+                            <span className="text-[10px] text-slate-400 truncate max-w-[120px]">{m.designation}</span>
+                          </div>
+                        ))}
+                        {group.members.length > 3 && (
+                          <span className="text-[10px] text-amber-600 font-bold block">+{group.members.length - 3} more alumni</span>
+                        )}
+                      </div>
+                    </div>
                   )}
                 </div>
 
-                <div className="space-y-1 pt-2 border-t border-slate-100">
-                  <span className="text-[10px] uppercase font-bold text-slate-400 block">Key Representatives</span>
-                  <div className="space-y-1">
-                    {group.members.slice(0, 3).map(m => (
-                      <div key={m.id} className="text-xs text-slate-700 flex items-center justify-between">
-                        <span className="font-medium truncate">{m.name}</span>
-                        <span className="text-[10px] text-slate-400 truncate max-w-[120px]">{m.designation}</span>
-                      </div>
-                    ))}
-                    {group.members.length > 3 && (
-                      <span className="text-[10px] text-amber-600 font-bold block">+{group.members.length - 3} more alumni</span>
-                    )}
-                  </div>
-                </div>
+                <button
+                  onClick={() => {
+                    onSelectCompany(group.companyName);
+                    setActiveTab('directory');
+                  }}
+                  className="w-full py-2.5 rounded-xl bg-slate-900 hover:bg-amber-500 hover:text-slate-950 text-amber-400 text-xs font-bold transition-all flex items-center justify-center space-x-1.5"
+                >
+                  <span>View Alumni at {group.companyName}</span>
+                  <ArrowRight className="w-3.5 h-3.5" />
+                </button>
               </div>
-
-              <button
-                onClick={() => {
-                  onSelectCompany(group.companyName);
-                  setActiveTab('directory');
-                }}
-                className="w-full py-2.5 rounded-xl bg-slate-900 hover:bg-amber-500 hover:text-slate-950 text-amber-400 text-xs font-bold transition-all flex items-center justify-center space-x-1.5"
-              >
-                <span>View Alumni at {group.companyName}</span>
-                <ArrowRight className="w-3.5 h-3.5" />
-              </button>
-            </div>
-          ))}
+            );
+          })}
         </div>
       ) : (
         /* Companies List View */
         <div className="space-y-3">
-          {filteredCompanies.map((group) => (
-            <div
-              key={group.companyName}
-              className="bg-white rounded-2xl border border-slate-200 p-4 shadow-sm hover:shadow-md hover:border-amber-400 transition-all flex flex-col sm:flex-row sm:items-center justify-between gap-4"
-            >
-              {/* Left Side: Details */}
-              <div className="flex items-start sm:items-center gap-4 flex-1">
-                <div className="w-12 h-12 rounded-xl bg-slate-900 text-amber-400 flex items-center justify-center font-extrabold text-lg shrink-0">
-                  <Building2 className="w-6 h-6" />
-                </div>
+          {filteredCompanies.map((group) => {
+            const logo = group.partnerMeta?.logoUrl;
+            const sector = group.partnerMeta?.sector;
+            const partnership = group.partnerMeta?.partnershipType;
 
-                <div className="space-y-1 flex-1">
-                  <div className="flex flex-wrap items-center gap-2">
-                    <h3 className="font-bold text-slate-900 text-base">{group.companyName}</h3>
-                    <span className="px-2.5 py-0.5 rounded-full bg-amber-100 text-amber-900 text-[10px] font-extrabold">
-                      {group.count} Alumni {group.count === 1 ? 'Member' : 'Members'}
-                    </span>
-                  </div>
-
-                  {group.locations.length > 0 && (
-                    <p className="text-xs text-slate-500 flex items-center gap-1">
-                      <MapPin className="w-3.5 h-3.5 text-slate-400" />
-                      <span>{group.locations.join(', ')}</span>
-                    </p>
+            return (
+              <div
+                key={group.companyName}
+                className="bg-white rounded-2xl border border-slate-200 p-4 shadow-sm hover:shadow-md hover:border-amber-400 transition-all flex flex-col sm:flex-row sm:items-center justify-between gap-4"
+              >
+                {/* Left Side: Details */}
+                <div className="flex items-start sm:items-center gap-4 flex-1">
+                  {logo ? (
+                    <img 
+                      src={logo} 
+                      alt={group.companyName} 
+                      className="w-12 h-12 rounded-xl object-cover border border-slate-200 bg-slate-50 shrink-0"
+                      onError={(e) => {
+                        (e.currentTarget as HTMLElement).style.display = 'none';
+                      }}
+                    />
+                  ) : (
+                    <div className="w-12 h-12 rounded-xl bg-slate-900 text-amber-400 flex items-center justify-center font-extrabold text-lg shrink-0">
+                      <Building2 className="w-6 h-6" />
+                    </div>
                   )}
 
-                  <div className="text-xs text-slate-600 pt-1 flex flex-wrap items-center gap-x-3 gap-y-1">
-                    <span className="text-[10px] uppercase font-bold text-slate-400">Reps:</span>
-                    {group.members.slice(0, 3).map(m => (
-                      <span key={m.id} className="font-medium text-slate-700">
-                        {m.name} <span className="text-slate-400 font-normal">({m.designation})</span>
+                  <div className="space-y-1 flex-1">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <h3 className="font-bold text-slate-900 text-base">{group.companyName}</h3>
+                      {partnership && (
+                        <span className="px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-800 text-[10px] font-extrabold border border-emerald-200">
+                          {partnership}
+                        </span>
+                      )}
+                      <span className="px-2.5 py-0.5 rounded-full bg-amber-100 text-amber-900 text-[10px] font-extrabold">
+                        {group.count} Alumni {group.count === 1 ? 'Member' : 'Members'}
                       </span>
-                    ))}
-                    {group.members.length > 3 && (
-                      <span className="text-amber-600 font-bold text-[10px]">+{group.members.length - 3} more</span>
+                    </div>
+
+                    <div className="flex flex-wrap items-center gap-x-3 text-xs text-slate-500">
+                      {sector && <span className="font-medium text-slate-600">{sector}</span>}
+                      {group.locations.length > 0 && (
+                        <span className="flex items-center gap-1">
+                          <MapPin className="w-3.5 h-3.5 text-slate-400" />
+                          <span>{group.locations.join(', ')}</span>
+                        </span>
+                      )}
+                    </div>
+
+                    {group.members.length > 0 && (
+                      <div className="text-xs text-slate-600 pt-1 flex flex-wrap items-center gap-x-3 gap-y-1">
+                        <span className="text-[10px] uppercase font-bold text-slate-400">Reps:</span>
+                        {group.members.slice(0, 3).map(m => (
+                          <span key={m.id} className="font-medium text-slate-700">
+                            {m.name} <span className="text-slate-400 font-normal">({m.designation})</span>
+                          </span>
+                        ))}
+                        {group.members.length > 3 && (
+                          <span className="text-amber-600 font-bold text-[10px]">+{group.members.length - 3} more</span>
+                        )}
+                      </div>
                     )}
                   </div>
                 </div>
-              </div>
 
-              {/* Right Side: Action Button */}
-              <button
-                onClick={() => {
-                  onSelectCompany(group.companyName);
-                  setActiveTab('directory');
-                }}
-                className="sm:w-auto w-full px-5 py-2.5 rounded-xl bg-slate-900 hover:bg-amber-500 hover:text-slate-950 text-amber-400 text-xs font-bold transition-all flex items-center justify-center space-x-1.5 shrink-0"
-              >
-                <span>View Alumni</span>
-                <ArrowRight className="w-3.5 h-3.5" />
-              </button>
-            </div>
-          ))}
+                {/* Right Side: Action Button */}
+                <button
+                  onClick={() => {
+                    onSelectCompany(group.companyName);
+                    setActiveTab('directory');
+                  }}
+                  className="sm:w-auto w-full px-5 py-2.5 rounded-xl bg-slate-900 hover:bg-amber-500 hover:text-slate-950 text-amber-400 text-xs font-bold transition-all flex items-center justify-center space-x-1.5 shrink-0"
+                >
+                  <span>View Alumni</span>
+                  <ArrowRight className="w-3.5 h-3.5" />
+                </button>
+              </div>
+            );
+          })}
         </div>
       )}
 

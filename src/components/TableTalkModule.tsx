@@ -91,7 +91,6 @@ export const TableTalkModule: React.FC<TableTalkModuleProps> = ({
   const [postLikes, setPostLikes] = useState<{ [key: string]: number }>({});
   const [userReaction, setUserReaction] = useState<{ [key: string]: string }>({});
   const [postShares, setPostShares] = useState<{ [key: string]: number }>({});
-  const [reactionPickerPostId, setReactionPickerPostId] = useState<string | null>(null);
   const [likedComments, setLikedComments] = useState<{ [key: string]: boolean }>({});
   const [commentLikes, setCommentLikes] = useState<{ [key: string]: number }>({});
   const [commentInputs, setCommentInputs] = useState<{ [key: string]: string }>({});
@@ -155,8 +154,6 @@ export const TableTalkModule: React.FC<TableTalkModuleProps> = ({
       const updated = { ...prev, [postId]: newCount };
       return updated;
     });
-
-    setReactionPickerPostId(null);
 
     // Call server to persist authentic count
     try {
@@ -1146,30 +1143,28 @@ export const TableTalkModule: React.FC<TableTalkModuleProps> = ({
 
                         {/* Facebook Action Buttons (Like with Reaction Picker, Comment, Share) */}
                         <div className="relative border-t border-b border-slate-200 py-1 flex items-center justify-between text-xs font-bold text-slate-600">
-                          {/* Reaction Hover/Tap Picker */}
-                          {reactionPickerPostId === post.id && (
-                            <div 
-                              className="absolute -top-12 left-2 bg-white rounded-full shadow-2xl border border-slate-200 px-3 py-1.5 flex items-center gap-2 z-30 animate-fadeIn"
-                              onMouseLeave={() => setReactionPickerPostId(null)}
-                            >
-                              {Object.entries(REACTION_CONFIG).map(([key, config]) => (
-                                <button
-                                  key={key}
-                                  type="button"
-                                  onClick={() => handleToggleReaction(post.id, key)}
-                                  className="hover:scale-130 transition-transform p-0.5 text-lg flex flex-col items-center group/btn relative"
-                                  title={config.label}
-                                >
-                                  <span>{config.icon}</span>
-                                </button>
-                              ))}
+                          {/* Like Button Wrapper with Pure Hover Reaction Flyout */}
+                          <div className="flex-1 relative group/like">
+                            {/* Reaction Hover Picker - visible ONLY when hovering over this container */}
+                            <div className="absolute -top-12 left-1 pb-3 hidden group-hover/like:flex items-center z-30 transition-all duration-150 animate-fadeIn pointer-events-auto">
+                              <div className="bg-white rounded-full shadow-2xl border border-slate-200/90 px-3 py-1.5 flex items-center gap-2">
+                                {Object.entries(REACTION_CONFIG).map(([key, config]) => (
+                                  <button
+                                    key={key}
+                                    type="button"
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      handleToggleReaction(post.id, key);
+                                    }}
+                                    className="hover:scale-135 active:scale-95 transition-transform p-0.5 text-lg flex flex-col items-center cursor-pointer"
+                                    title={config.label}
+                                  >
+                                    <span>{config.icon}</span>
+                                  </button>
+                                ))}
+                              </div>
                             </div>
-                          )}
 
-                          <div 
-                            className="flex-1 relative"
-                            onMouseEnter={() => setReactionPickerPostId(post.id)}
-                          >
                             <button
                               type="button"
                               onClick={() => handleToggleReaction(post.id, userReaction[post.id] || 'like')}
