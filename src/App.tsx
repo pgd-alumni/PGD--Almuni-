@@ -24,12 +24,36 @@ import {
   computeLiveStats 
 } from './utils/dataEngine';
 
+const SESSION_DURATION_MS = 24 * 60 * 60 * 1000; // 24 Hours (1 Day)
+const AUTH_EXPIRY_KEY = 'pgd_alumni_auth_expiry';
+const CURRENT_USER_KEY = 'pgd_alumni_current_user';
+
 export default function App() {
-  const [isAuthenticated, setIsAuthenticated] = useState<boolean>(false);
+  const [isAuthenticated, setIsAuthenticated] = useState<boolean>(() => {
+    try {
+      const savedExpiry = localStorage.getItem(AUTH_EXPIRY_KEY);
+      if (savedExpiry) {
+        const expiryTime = parseInt(savedExpiry, 10);
+        if (!isNaN(expiryTime) && Date.now() < expiryTime) {
+          return true;
+        } else {
+          localStorage.removeItem(AUTH_EXPIRY_KEY);
+          localStorage.removeItem(CURRENT_USER_KEY);
+        }
+      }
+    } catch (e) {
+      console.error('Failed to load auth session:', e);
+    }
+    return false;
+  });
+
   const [currentUser, setCurrentUser] = useState<UserProfile | null>(() => {
     try {
-      const saved = localStorage.getItem('pgd_alumni_current_user');
-      if (saved) return JSON.parse(saved);
+      const savedExpiry = localStorage.getItem(AUTH_EXPIRY_KEY);
+      if (savedExpiry && Date.now() < parseInt(savedExpiry, 10)) {
+        const saved = localStorage.getItem(CURRENT_USER_KEY);
+        if (saved) return JSON.parse(saved);
+      }
     } catch (e) {
       console.error('Failed to load current user:', e);
     }
@@ -206,6 +230,49 @@ export default function App() {
     loadData();
   }, [loadData]);
 
+  // Periodic 24-hour session expiration check
+  useEffect(() => {
+    const checkAuthExpiry = () => {
+      const savedExpiry = localStorage.getItem(AUTH_EXPIRY_KEY);
+      if (savedExpiry) {
+        const expiryTime = parseInt(savedExpiry, 10);
+        if (isNaN(expiryTime) || Date.now() >= expiryTime) {
+          setIsAuthenticated(false);
+          setCurrentUser(null);
+          localStorage.removeItem(AUTH_EXPIRY_KEY);
+          localStorage.removeItem(CURRENT_USER_KEY);
+        }
+      }
+    };
+
+    // Check every 60 seconds
+    const interval = setInterval(checkAuthExpiry, 60000);
+    return () => clearInterval(interval);
+  }, []);
+
+  const handleAuthenticated = (user?: UserProfile) => {
+    const expiryTime = Date.now() + SESSION_DURATION_MS; // 24 Hours in milliseconds
+    setIsAuthenticated(true);
+    try {
+      localStorage.setItem(AUTH_EXPIRY_KEY, expiryTime.toString());
+      if (user) {
+        setCurrentUser(user);
+        localStorage.setItem(CURRENT_USER_KEY, JSON.stringify(user));
+      }
+    } catch (e) {
+      console.error("Failed to store 24h session:", e);
+    }
+  };
+
+  const handleLogout = () => {
+    setIsAuthenticated(false);
+    setCurrentUser(null);
+    try {
+      localStorage.removeItem(AUTH_EXPIRY_KEY);
+      localStorage.removeItem(CURRENT_USER_KEY);
+    } catch (e) {}
+  };
+
   const handleUpdateJobStatus = async (id: string, status: 'approved' | 'rejected' | 'pending') => {
     try {
       const res = await fetch(`/api/admin/jobs/${id}/status`, {
@@ -261,15 +328,7 @@ export default function App() {
       <AuthOverlay
         isAuthenticated={isAuthenticated}
         alumniList={alumniList}
-        onAuthenticated={(user) => {
-          setIsAuthenticated(true);
-          if (user) {
-            setCurrentUser(user);
-            try {
-              localStorage.setItem('pgd_alumni_current_user', JSON.stringify(user));
-            } catch (e) {}
-          }
-        }}
+        onAuthenticated={handleAuthenticated}
       />
 
       {/* Main Page Container with Blur when NOT Authenticated */}
@@ -282,7 +341,13 @@ export default function App() {
           pendingJobsCount={pendingJobsCount}
           totalAlumniCount={alumniList.length}
           isAuthenticated={isAuthenticated}
-          onLockToggle={() => setIsAuthenticated(!isAuthenticated)}
+          onLockToggle={() => {
+            if (isAuthenticated) {
+              handleLogout();
+            } else {
+              setIsAuthenticated(false);
+            }
+          }}
         />
 
         {/* Optional Global API Warning Notification */}

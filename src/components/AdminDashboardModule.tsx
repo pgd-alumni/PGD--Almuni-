@@ -56,8 +56,25 @@ export const AdminDashboardModule: React.FC<AdminDashboardModuleProps> = ({
   alumniList = [],
   onSelectCompany
 }) => {
-  const [role, setRole] = useState<AdminRole>(null);
-  const [unlocked, setUnlocked] = useState(false);
+  const [role, setRole] = useState<AdminRole>(() => {
+    try {
+      const savedExpiry = localStorage.getItem('butex_admin_session_expiry');
+      const savedRole = localStorage.getItem('butex_admin_role') as AdminRole;
+      if (savedExpiry && savedRole && Date.now() < parseInt(savedExpiry, 10)) {
+        return savedRole;
+      }
+    } catch (e) {}
+    return null;
+  });
+  const [unlocked, setUnlocked] = useState<boolean>(() => {
+    try {
+      const savedExpiry = localStorage.getItem('butex_admin_session_expiry');
+      if (savedExpiry && Date.now() < parseInt(savedExpiry, 10)) {
+        return true;
+      }
+    } catch (e) {}
+    return false;
+  });
   const [passcode, setPasscode] = useState('');
   const [passcodeError, setPasscodeError] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState<AdminTab>('jobs');
@@ -423,6 +440,7 @@ export const AdminDashboardModule: React.FC<AdminDashboardModuleProps> = ({
   const handleUnlock = (e: React.FormEvent) => {
     e.preventDefault();
     const normalized = passcode.trim().toLowerCase();
+    const expiry = (Date.now() + 24 * 60 * 60 * 1000).toString();
 
     // Super Admin / Coding Admin Passcodes
     if (['superadmin', 'codingadmin', 'super2026', 'master2026', 'super', 'coding'].includes(normalized)) {
@@ -430,6 +448,10 @@ export const AdminDashboardModule: React.FC<AdminDashboardModuleProps> = ({
       setUnlocked(true);
       setPasscodeError(null);
       setPasscode('');
+      try {
+        localStorage.setItem('butex_admin_role', 'super');
+        localStorage.setItem('butex_admin_session_expiry', expiry);
+      } catch (e) {}
       return;
     }
 
@@ -439,6 +461,10 @@ export const AdminDashboardModule: React.FC<AdminDashboardModuleProps> = ({
       setUnlocked(true);
       setPasscodeError(null);
       setPasscode('');
+      try {
+        localStorage.setItem('butex_admin_role', 'admin');
+        localStorage.setItem('butex_admin_session_expiry', expiry);
+      } catch (e) {}
       return;
     }
 
@@ -453,6 +479,10 @@ export const AdminDashboardModule: React.FC<AdminDashboardModuleProps> = ({
       setElevateModalOpen(false);
       setSuperPasscodeAttempt('');
       setElevateError(null);
+      try {
+        localStorage.setItem('butex_admin_role', 'super');
+        localStorage.setItem('butex_admin_session_expiry', (Date.now() + 24 * 60 * 60 * 1000).toString());
+      } catch (e) {}
       alert("👑 Role Elevated: You now have full Coding Admin privileges!");
     } else {
       setElevateError("Incorrect Coding Admin Passcode! (Passcode: codingadmin)");
@@ -592,6 +622,10 @@ export const AdminDashboardModule: React.FC<AdminDashboardModuleProps> = ({
             onClick={() => {
               setUnlocked(false);
               setRole(null);
+              try {
+                localStorage.removeItem('butex_admin_role');
+                localStorage.removeItem('butex_admin_session_expiry');
+              } catch (e) {}
             }}
             className="px-4 py-2 rounded-xl bg-slate-800 text-slate-300 text-xs font-bold hover:bg-slate-700 transition-colors flex items-center space-x-1.5"
           >
