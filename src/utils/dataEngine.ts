@@ -442,6 +442,9 @@ export const INITIAL_TABLE_TALK: TableTalkPost[] = [
     takenPictureLink: "https://images.unsplash.com/photo-1581091226825-a6a2a5aee158?auto=format&fit=crop&w=800&q=80",
     publishedAt: new Date(Date.now() - 3600000 * 12).toISOString(),
     whatsappAlertSent: true,
+    likesCount: 0,
+    sharesCount: 0,
+    reactions: {},
     reviews: [
       {
         id: "TTR-01",

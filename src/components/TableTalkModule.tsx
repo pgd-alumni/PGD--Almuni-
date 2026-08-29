@@ -86,28 +86,152 @@ export const TableTalkModule: React.FC<TableTalkModuleProps> = ({
   const [reviewSubmitting, setReviewSubmitting] = useState(false);
   const [reviewSuccessToast, setReviewSuccessToast] = useState<{ postId: string; message: string } | null>(null);
 
-  // Facebook interactions state
+  // Facebook interactions state - Authentic Tracking
   const [likedPosts, setLikedPosts] = useState<{ [key: string]: boolean }>({});
   const [postLikes, setPostLikes] = useState<{ [key: string]: number }>({});
+  const [userReaction, setUserReaction] = useState<{ [key: string]: string }>({});
+  const [postShares, setPostShares] = useState<{ [key: string]: number }>({});
+  const [reactionPickerPostId, setReactionPickerPostId] = useState<string | null>(null);
   const [likedComments, setLikedComments] = useState<{ [key: string]: boolean }>({});
+  const [commentLikes, setCommentLikes] = useState<{ [key: string]: number }>({});
   const [commentInputs, setCommentInputs] = useState<{ [key: string]: string }>({});
 
-  const toggleLikePost = (postId: string) => {
-    setLikedPosts(prev => {
-      const isCurrentlyLiked = prev[postId];
-      setPostLikes(prevLikes => ({
-        ...prevLikes,
-        [postId]: (prevLikes[postId] || 38) + (isCurrentlyLiked ? -1 : 1)
-      }));
-      return { ...prev, [postId]: !isCurrentlyLiked };
-    });
+  // Authentic Reaction Icons and Definitions
+  const REACTION_CONFIG: { [key: string]: { label: string; icon: string; color: string; bg: string } } = {
+    like: { label: 'Like', icon: '👍', color: 'text-[#1877F2]', bg: 'bg-[#1877F2]' },
+    love: { label: 'Love', icon: '❤️', color: 'text-[#F3425F]', bg: 'bg-[#F3425F]' },
+    insightful: { label: 'Insightful', icon: '💡', color: 'text-amber-500', bg: 'bg-amber-500' },
+    celebrate: { label: 'Celebrate', icon: '👏', color: 'text-emerald-500', bg: 'bg-emerald-500' },
+    support: { label: 'Support', icon: '🤝', color: 'text-indigo-500', bg: 'bg-indigo-500' }
   };
 
-  const toggleLikeComment = (commentKey: string) => {
-    setLikedComments(prev => ({
-      ...prev,
-      [commentKey]: !prev[commentKey]
-    }));
+  // Load stored user reactions and interactions from localStorage
+  useEffect(() => {
+    try {
+      const savedLikes = localStorage.getItem('butex_tabletalk_liked_posts');
+      if (savedLikes) setLikedPosts(JSON.parse(savedLikes));
+      const savedReactions = localStorage.getItem('butex_tabletalk_user_reactions');
+      if (savedReactions) setUserReaction(JSON.parse(savedReactions));
+      const savedShares = localStorage.getItem('butex_tabletalk_shares');
+      if (savedShares) setPostShares(JSON.parse(savedShares));
+      const savedCommentLikes = localStorage.getItem('butex_tabletalk_comment_likes');
+      if (savedCommentLikes) setLikedComments(JSON.parse(savedCommentLikes));
+    } catch (e) {}
+  }, []);
+
+  const handleToggleReaction = async (postId: string, reactionType: string = 'like') => {
+    const prevReaction = userReaction[postId];
+    const isRemoving = prevReaction === reactionType;
+    const nextReaction = isRemoving ? null : reactionType;
+
+    // Update user's active reaction state
+    setUserReaction(prev => {
+      const updated = { ...prev };
+      if (isRemoving) delete updated[postId];
+      else updated[postId] = reactionType;
+      try {
+        localStorage.setItem('butex_tabletalk_user_reactions', JSON.stringify(updated));
+      } catch (e) {}
+      return updated;
+    });
+
+    setLikedPosts(prev => {
+      const updated = { ...prev, [postId]: !isRemoving };
+      try {
+        localStorage.setItem('butex_tabletalk_liked_posts', JSON.stringify(updated));
+      } catch (e) {}
+      return updated;
+    });
+
+    // Update real reaction count
+    setPostLikes(prev => {
+      const current = prev[postId] ?? 0;
+      let newCount = current;
+      if (isRemoving) {
+        newCount = Math.max(0, current - 1);
+      } else if (!prevReaction) {
+        newCount = current + 1;
+      }
+      const updated = { ...prev, [postId]: newCount };
+      return updated;
+    });
+
+    setReactionPickerPostId(null);
+
+    // Call server to persist authentic count
+    try {
+      const delta = isRemoving ? -1 : (!prevReaction ? 1 : 0);
+      if (delta !== 0) {
+        await fetch(`/api/tabletalk/${encodeURIComponent(postId)}/like`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ delta, reactionType })
+        });
+      }
+    } catch (err) {
+      console.error("Error syncing like:", err);
+    }
+  };
+
+  const handleSharePost = async (post: TableTalkPost) => {
+    const shareText = `BUTEX Table Talk: "${post.discussionTopic.slice(0, 100)}..."`;
+    const shareUrl = window.location.href;
+
+    if (navigator.share) {
+      try {
+        await navigator.share({ title: 'BUTEX Table Talk', text: shareText, url: shareUrl });
+      } catch (e) {}
+    } else {
+      try {
+        await navigator.clipboard.writeText(`${shareText}\n${shareUrl}`);
+        alert("Discussion link copied to clipboard!");
+      } catch (e) {
+        alert("Link copied!");
+      }
+    }
+
+    // Increment authentic share count
+    setPostShares(prev => {
+      const newCount = (prev[post.id] ?? 0) + 1;
+      const updated = { ...prev, [post.id]: newCount };
+      try {
+        localStorage.setItem('butex_tabletalk_shares', JSON.stringify(updated));
+      } catch (e) {}
+      return updated;
+    });
+
+    try {
+      await fetch(`/api/tabletalk/${encodeURIComponent(post.id)}/share`, {
+        method: 'POST'
+      });
+    } catch (err) {}
+  };
+
+  const toggleLikeComment = async (postId: string, reviewId: string) => {
+    const key = `${postId}_${reviewId}`;
+    const isCurrentlyLiked = likedComments[key];
+    const newLiked = !isCurrentlyLiked;
+
+    setLikedComments(prev => {
+      const updated = { ...prev, [key]: newLiked };
+      try {
+        localStorage.setItem('butex_tabletalk_comment_likes', JSON.stringify(updated));
+      } catch (e) {}
+      return updated;
+    });
+
+    setCommentLikes(prev => {
+      const current = prev[key] ?? 0;
+      return { ...prev, [key]: Math.max(0, current + (newLiked ? 1 : -1)) };
+    });
+
+    try {
+      await fetch(`/api/tabletalk/${encodeURIComponent(postId)}/reviews/${encodeURIComponent(reviewId)}/like`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ delta: newLiked ? 1 : -1 })
+      });
+    } catch (e) {}
   };
 
   const handleSendFacebookComment = async (postId: string) => {
@@ -205,10 +329,22 @@ export const TableTalkModule: React.FC<TableTalkModuleProps> = ({
       if (loadedPosts.length === 0) {
         loadedPosts = getInitialTableTalk();
       }
+
+      // Initialize authentic maps from loaded posts
+      const likesMap: { [key: string]: number } = {};
+      const sharesMap: { [key: string]: number } = {};
+      loadedPosts.forEach(p => {
+        likesMap[p.id] = typeof p.likesCount === 'number' ? p.likesCount : 0;
+        sharesMap[p.id] = typeof p.sharesCount === 'number' ? p.sharesCount : 0;
+      });
+
+      setPostLikes(prev => ({ ...likesMap, ...prev }));
+      setPostShares(prev => ({ ...sharesMap, ...prev }));
       setPosts(loadedPosts);
     } catch (err) {
       console.error(err);
-      setPosts(getInitialTableTalk());
+      const fallback = getInitialTableTalk();
+      setPosts(fallback);
     } finally {
       setIsLoading(false);
     }
@@ -280,6 +416,9 @@ export const TableTalkModule: React.FC<TableTalkModuleProps> = ({
         takenPictureLink: photoUrl,
         publishedAt: new Date().toISOString(),
         whatsappAlertSent: true,
+        likesCount: 0,
+        sharesCount: 0,
+        reactions: {},
         reviews: []
       };
 
@@ -305,6 +444,10 @@ export const TableTalkModule: React.FC<TableTalkModuleProps> = ({
           newPost.id = json.post.id;
         }
       } catch (apiErr) {}
+
+      // Initialize authentic counts for the new post
+      setPostLikes(prev => ({ ...prev, [newPost.id]: 0 }));
+      setPostShares(prev => ({ ...prev, [newPost.id]: 0 }));
 
       setLastSubmissionResult({
         whatsappAlertText: `*WhatsApp Notification to PGD Group:*\nNew Table Talk Topic: "${discussionTopic}"\nHost: ${newPost.hostName} (${newPost.hostRoll})\nDiscussion Date: ${dueDate} (${dueTime})`,
@@ -956,34 +1099,94 @@ export const TableTalkModule: React.FC<TableTalkModuleProps> = ({
 
                       {/* Facebook Post Reaction & Interaction Bar */}
                       <div className="pt-2 border-t border-slate-100 space-y-2">
-                        {/* Reaction Counter Row */}
+                        {/* Authentic Reaction & Interaction Counter Row */}
                         <div className="flex items-center justify-between text-xs text-slate-500 px-1">
-                          <div className="flex items-center gap-1.5">
-                            <div className="flex -space-x-1 items-center">
-                              <span className="w-4.5 h-4.5 rounded-full bg-[#1877F2] text-white flex items-center justify-center text-[10px] shadow-2xs">👍</span>
-                              <span className="w-4.5 h-4.5 rounded-full bg-[#F3425F] text-white flex items-center justify-center text-[10px] shadow-2xs">❤️</span>
-                            </div>
-                            <span className="font-extrabold text-slate-700">{postLikes[post.id] || 38}</span>
+                          <div className="flex items-center gap-1.5 min-h-[20px]">
+                            {/* Show active reaction icons & real count only if > 0 */}
+                            {(postLikes[post.id] ?? (post.likesCount || 0)) > 0 ? (
+                              <div className="flex items-center gap-1.5 animate-fadeIn">
+                                <div className="flex -space-x-1 items-center">
+                                  {userReaction[post.id] && userReaction[post.id] !== 'like' && (
+                                    <span className={`w-4.5 h-4.5 rounded-full ${REACTION_CONFIG[userReaction[post.id]]?.bg || 'bg-[#1877F2]'} text-white flex items-center justify-center text-[10px] shadow-2xs z-10`}>
+                                      {REACTION_CONFIG[userReaction[post.id]]?.icon || '👍'}
+                                    </span>
+                                  )}
+                                  <span className="w-4.5 h-4.5 rounded-full bg-[#1877F2] text-white flex items-center justify-center text-[10px] shadow-2xs">
+                                    👍
+                                  </span>
+                                </div>
+                                <span className="font-extrabold text-slate-700">
+                                  {postLikes[post.id] ?? (post.likesCount || 0)}
+                                </span>
+                              </div>
+                            ) : (
+                              <span className="text-[11px] text-slate-400 font-medium">0 reactions</span>
+                            )}
                           </div>
+
                           <div className="flex items-center gap-3 font-semibold text-slate-500">
-                            <span className="hover:underline cursor-pointer">{reviews.length} {reviews.length === 1 ? 'comment' : 'comments'}</span>
+                            <span 
+                              onClick={() => {
+                                const inputEl = document.getElementById(`comment-input-${post.id}`);
+                                if (inputEl) inputEl.focus();
+                              }}
+                              className="hover:underline cursor-pointer"
+                            >
+                              {reviews.length} {reviews.length === 1 ? 'comment' : 'comments'}
+                            </span>
                             <span>•</span>
-                            <span className="hover:underline cursor-pointer">1 share</span>
+                            <span 
+                              onClick={() => handleSharePost(post)}
+                              className="hover:underline cursor-pointer"
+                            >
+                              {postShares[post.id] ?? (post.sharesCount || 0)} {(postShares[post.id] ?? (post.sharesCount || 0)) === 1 ? 'share' : 'shares'}
+                            </span>
                           </div>
                         </div>
 
-                        {/* Facebook Action Buttons (Like, Comment, Share) */}
-                        <div className="border-t border-b border-slate-200 py-1 flex items-center justify-between text-xs font-bold text-slate-600">
-                          <button
-                            type="button"
-                            onClick={() => toggleLikePost(post.id)}
-                            className={`flex-1 flex items-center justify-center gap-2 py-2 hover:bg-slate-100 rounded-xl transition-colors ${
-                              likedPosts[post.id] ? 'text-[#1877F2] font-extrabold' : 'text-slate-600'
-                            }`}
+                        {/* Facebook Action Buttons (Like with Reaction Picker, Comment, Share) */}
+                        <div className="relative border-t border-b border-slate-200 py-1 flex items-center justify-between text-xs font-bold text-slate-600">
+                          {/* Reaction Hover/Tap Picker */}
+                          {reactionPickerPostId === post.id && (
+                            <div 
+                              className="absolute -top-12 left-2 bg-white rounded-full shadow-2xl border border-slate-200 px-3 py-1.5 flex items-center gap-2 z-30 animate-fadeIn"
+                              onMouseLeave={() => setReactionPickerPostId(null)}
+                            >
+                              {Object.entries(REACTION_CONFIG).map(([key, config]) => (
+                                <button
+                                  key={key}
+                                  type="button"
+                                  onClick={() => handleToggleReaction(post.id, key)}
+                                  className="hover:scale-130 transition-transform p-0.5 text-lg flex flex-col items-center group/btn relative"
+                                  title={config.label}
+                                >
+                                  <span>{config.icon}</span>
+                                </button>
+                              ))}
+                            </div>
+                          )}
+
+                          <div 
+                            className="flex-1 relative"
+                            onMouseEnter={() => setReactionPickerPostId(post.id)}
                           >
-                            <ThumbsUp className={`w-4 h-4 ${likedPosts[post.id] ? 'fill-[#1877F2] text-[#1877F2]' : 'text-slate-500'}`} />
-                            <span>Like</span>
-                          </button>
+                            <button
+                              type="button"
+                              onClick={() => handleToggleReaction(post.id, userReaction[post.id] || 'like')}
+                              className={`w-full flex items-center justify-center gap-2 py-2 hover:bg-slate-100 rounded-xl transition-colors ${
+                                userReaction[post.id] 
+                                  ? (REACTION_CONFIG[userReaction[post.id]]?.color || 'text-[#1877F2]') + ' font-extrabold'
+                                  : 'text-slate-600'
+                              }`}
+                            >
+                              {userReaction[post.id] ? (
+                                <span className="text-base leading-none">{REACTION_CONFIG[userReaction[post.id]]?.icon || '👍'}</span>
+                              ) : (
+                                <ThumbsUp className="w-4 h-4 text-slate-500" />
+                              )}
+                              <span>{userReaction[post.id] ? REACTION_CONFIG[userReaction[post.id]]?.label : 'Like'}</span>
+                            </button>
+                          </div>
 
                           <button
                             type="button"
@@ -999,15 +1202,7 @@ export const TableTalkModule: React.FC<TableTalkModuleProps> = ({
 
                           <button
                             type="button"
-                            onClick={() => {
-                              const text = `BUTEX Table Talk: "${post.discussionTopic.slice(0, 80)}..."`;
-                              if (navigator.share) {
-                                navigator.share({ title: 'BUTEX Table Talk', text, url: window.location.href }).catch(() => {});
-                              } else {
-                                navigator.clipboard.writeText(`${text} - ${window.location.href}`);
-                                alert("Link copied to clipboard!");
-                              }
-                            }}
+                            onClick={() => handleSharePost(post)}
                             className="flex-1 flex items-center justify-center gap-2 py-2 hover:bg-slate-100 rounded-xl transition-colors text-slate-600"
                           >
                             <Share2 className="w-4 h-4 text-slate-500" />
@@ -1036,7 +1231,9 @@ export const TableTalkModule: React.FC<TableTalkModuleProps> = ({
                                 'bg-indigo-600 text-white'
                               ];
                               const colorClass = avatarColors[revIdx % avatarColors.length];
-                              const commentKey = rev.id || `${post.id}-${revIdx}`;
+                              const commentKey = `${post.id}_${rev.id || revIdx}`;
+                              const isCommentLiked = likedComments[commentKey];
+                              const commentLikeCount = commentLikes[commentKey] ?? (rev.likesCount || 0);
 
                               return (
                                 <div key={commentKey} className="flex items-start gap-2.5 group animate-fadeIn">
@@ -1068,10 +1265,15 @@ export const TableTalkModule: React.FC<TableTalkModuleProps> = ({
                                     <div className="flex items-center gap-3 pl-3 text-[11px] font-bold text-slate-500">
                                       <button
                                         type="button"
-                                        onClick={() => toggleLikeComment(commentKey)}
-                                        className={`hover:underline ${likedComments[commentKey] ? 'text-[#1877F2] font-extrabold' : 'hover:text-slate-700'}`}
+                                        onClick={() => toggleLikeComment(post.id, rev.id || String(revIdx))}
+                                        className={`hover:underline flex items-center gap-1 ${isCommentLiked ? 'text-[#1877F2] font-extrabold' : 'hover:text-slate-700'}`}
                                       >
-                                        Like
+                                        <span>Like</span>
+                                        {commentLikeCount > 0 && (
+                                          <span className="inline-flex items-center gap-0.5 bg-blue-50 text-[#1877F2] px-1.5 py-0.2 rounded-full text-[10px] font-bold">
+                                            👍 {commentLikeCount}
+                                          </span>
+                                        )}
                                       </button>
                                       <button
                                         type="button"

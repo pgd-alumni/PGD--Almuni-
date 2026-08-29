@@ -153,6 +153,7 @@ export interface TableTalkReview {
   rating: number; // 1-5
   comment: string;
   createdAt: string;
+  likesCount?: number;
 }
 
 export interface TableTalkPost {
@@ -169,6 +170,9 @@ export interface TableTalkPost {
   publishedAt: string; // ISO date string for 14-day auto-expiration
   whatsappAlertSent?: boolean;
   reviews?: TableTalkReview[];
+  likesCount?: number;
+  sharesCount?: number;
+  reactions?: { [type: string]: number };
 }
 
 export interface MentorProfile {

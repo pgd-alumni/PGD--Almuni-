@@ -162,6 +162,7 @@ interface TableTalkReview {
   rating: number;
   comment: string;
   createdAt: string;
+  likesCount?: number;
 }
 
 interface TableTalkPost {
@@ -177,6 +178,9 @@ interface TableTalkPost {
   takenPictureLink?: string;
   publishedAt: string;
   whatsappAlertSent?: boolean;
+  likesCount?: number;
+  sharesCount?: number;
+  reactions?: { [key: string]: number };
   reviews?: TableTalkReview[];
 }
 
@@ -453,6 +457,9 @@ const defaultTableTalkPosts: TableTalkPost[] = [
     takenPictureLink: "https://images.unsplash.com/photo-1581091226825-a6a2a5aee158?auto=format&fit=crop&w=800&q=80",
     publishedAt: new Date(Date.now() - 3600000 * 12).toISOString(),
     whatsappAlertSent: true,
+    likesCount: 0,
+    sharesCount: 0,
+    reactions: {},
     reviews: [
       {
         id: "TTR-01",
@@ -461,7 +468,8 @@ const defaultTableTalkPosts: TableTalkPost[] = [
         participantRoll: "PGD-2024-3-088",
         rating: 4,
         comment: "Very helpful session on EU Digital Product Passport requirements. Clear explanations by Nazmul Huda Sir.",
-        createdAt: new Date(Date.now() - 3600000 * 6).toISOString()
+        createdAt: new Date(Date.now() - 3600000 * 6).toISOString(),
+        likesCount: 0
       }
     ]
   }
@@ -1733,10 +1741,14 @@ async function startServer() {
       takenPictureLink: takenPictureLink || "",
       publishedAt: new Date().toISOString(),
       whatsappAlertSent: true,
+      likesCount: 0,
+      sharesCount: 0,
+      reactions: {},
       reviews: []
     };
 
     inMemoryTableTalkPosts.unshift(newPost);
+    savePersistedData('tabletalk.json', inMemoryTableTalkPosts);
 
     // WhatsApp Group Notification Trigger
     // Message Format: "[Host Name] requested to join on table talk. Published on [Due Date]."
@@ -1788,6 +1800,44 @@ async function startServer() {
     });
   });
 
+  // Authentic Post Reaction / Like Toggle
+  app.post("/api/tabletalk/:id/like", (req, res) => {
+    const { id } = req.params;
+    const { delta, reactionType } = req.body; // delta: +1 or -1, reactionType: 'like', 'love', 'insightful', etc.
+    const post = inMemoryTableTalkPosts.find(p => p.id === id);
+    if (!post) {
+      return res.status(404).json({ success: false, message: "Table Talk post not found" });
+    }
+
+    const currentLikes = typeof post.likesCount === 'number' ? post.likesCount : 0;
+    const change = typeof delta === 'number' ? delta : 1;
+    post.likesCount = Math.max(0, currentLikes + change);
+
+    if (!post.reactions) post.reactions = {};
+    const type = reactionType || 'like';
+    if (change > 0) {
+      post.reactions[type] = (post.reactions[type] || 0) + 1;
+    } else if (post.reactions[type] && post.reactions[type] > 0) {
+      post.reactions[type] = Math.max(0, post.reactions[type] - 1);
+    }
+
+    savePersistedData('tabletalk.json', inMemoryTableTalkPosts);
+    res.json({ success: true, likesCount: post.likesCount, reactions: post.reactions });
+  });
+
+  // Authentic Post Share Counter Increment
+  app.post("/api/tabletalk/:id/share", (req, res) => {
+    const { id } = req.params;
+    const post = inMemoryTableTalkPosts.find(p => p.id === id);
+    if (!post) {
+      return res.status(404).json({ success: false, message: "Table Talk post not found" });
+    }
+
+    post.sharesCount = (post.sharesCount || 0) + 1;
+    savePersistedData('tabletalk.json', inMemoryTableTalkPosts);
+    res.json({ success: true, sharesCount: post.sharesCount });
+  });
+
   // Participant Submit Review/Rating on Table Talk
   app.post("/api/tabletalk/:id/reviews", (req, res) => {
     const { id } = req.params;
@@ -1811,10 +1861,12 @@ async function startServer() {
       participantRoll: participantRoll || "PGD-MEMBER",
       rating: Math.min(5, Math.max(1, parseInt(rating) || 5)),
       comment,
-      createdAt: new Date().toISOString()
+      createdAt: new Date().toISOString(),
+      likesCount: 0
     };
 
     post.reviews.unshift(newReview);
+    savePersistedData('tabletalk.json', inMemoryTableTalkPosts);
 
     // Whapi WhatsApp Dispatch for TableTalk Discussion Reply / Comment
     if (whapiConfig.autoNotifyTableTalk) {
@@ -1823,6 +1875,24 @@ async function startServer() {
     }
 
     res.json({ success: true, message: "Review submitted successfully!", review: newReview });
+  });
+
+  // Like a Comment / Review on Table Talk
+  app.post("/api/tabletalk/:id/reviews/:reviewId/like", (req, res) => {
+    const { id, reviewId } = req.params;
+    const { delta } = req.body;
+    const post = inMemoryTableTalkPosts.find(p => p.id === id);
+    if (!post || !post.reviews) {
+      return res.status(404).json({ success: false, message: "Post or reviews not found" });
+    }
+    const review = post.reviews.find(r => r.id === reviewId);
+    if (!review) {
+      return res.status(404).json({ success: false, message: "Review not found" });
+    }
+    const change = typeof delta === 'number' ? delta : 1;
+    review.likesCount = Math.max(0, (review.likesCount || 0) + change);
+    savePersistedData('tabletalk.json', inMemoryTableTalkPosts);
+    res.json({ success: true, likesCount: review.likesCount });
   });
 
   // Admin Instant Delete Table Talk Post (Moderation Control)

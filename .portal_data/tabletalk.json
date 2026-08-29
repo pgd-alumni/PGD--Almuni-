@@ -1,0 +1,33 @@
+[
+  {
+    "id": "TT-101",
+    "hostName": "Dr. Kamruzzaman",
+    "hostEmail": "dr.kamruz@butex.edu.bd",
+    "hostRoll": "PGD-FACULTY",
+    "discussionTopic": "Please put your comments on USTER Statistics (5% and 25%) for the Preparation of an USTER Report on 30 Ne Carded and Combed Yarn - Dr. Kamruzzaman",
+    "dueDate": "2026-09-05",
+    "dueTime": "10:30 AM",
+    "attachedFileLink": "https://drive.google.com/file/d/1uMOI8R1PHXxq59k8mWVe7dEqOe60sePKmULDWbwrDEg/view?usp=sharing",
+    "attachedFileName": "USTER_30Ne_Analysis_Doc.pdf",
+    "takenPictureLink": "https://images.unsplash.com/photo-1581091226825-a6a2a5aee158?auto=format&fit=crop&w=800&q=80",
+    "publishedAt": "2026-08-29T10:03:34.235Z",
+    "whatsappAlertSent": true,
+    "likesCount": 0,
+    "sharesCount": 1,
+    "reactions": {
+      "like": 0
+    },
+    "reviews": [
+      {
+        "id": "TTR-01",
+        "postId": "TT-101",
+        "participantName": "Md. Rafiqul Islam",
+        "participantRoll": "PGD-2024-3-088",
+        "rating": 4,
+        "comment": "Very helpful session on EU Digital Product Passport requirements. Clear explanations by Nazmul Huda Sir.",
+        "createdAt": "2026-08-29T16:03:34.235Z",
+        "likesCount": 0
+      }
+    ]
+  }
+]
