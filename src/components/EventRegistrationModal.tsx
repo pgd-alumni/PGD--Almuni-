@@ -29,9 +29,6 @@ export const EventRegistrationModal: React.FC<EventRegistrationModalProps> = ({
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState(false);
 
-  const GOOGLE_FORM_URL = "https://docs.google.com/forms/d/e/1FAIpQLScT82KiXdAQg-Xlgr7xXfnbcoiAakTNm58FTt233tP_9BMEcw/viewform?usp=publish-editor";
-  const GOOGLE_SHEET_URL = "https://docs.google.com/spreadsheets/d/1ZY76tbYUCTS8LA4DOe76cRAorDaTSRqVTsejD_UBspE/edit?resourcekey=&gid=1943182397#gid=1943182397";
-
   if (!event && events.length === 0) return null;
   const activeEvent = event || events[0];
 
@@ -60,7 +57,7 @@ export const EventRegistrationModal: React.FC<EventRegistrationModalProps> = ({
           paymentRefNo: paymentRefNo.trim(),
           transactionId: paymentRefNo.trim(),
           paymentSubmissionDate,
-          tabName: "event history"
+          tabName: "Event Registration Details"
         })
       });
 
@@ -108,45 +105,18 @@ export const EventRegistrationModal: React.FC<EventRegistrationModalProps> = ({
         {/* Modal Content - Scrollable */}
         <div className="p-4 sm:p-6 space-y-4 overflow-y-auto flex-1 scrollbar-thin">
 
-          {/* Quick Integration Banner with Google Form & Sheet links */}
-          <div className="bg-slate-900 text-slate-100 p-3 sm:p-3.5 rounded-2xl border border-slate-800 space-y-2">
-            <div className="flex items-center justify-between text-[11px] text-amber-400 font-bold">
-              <span>Google Form & Sheet Integration Options:</span>
-            </div>
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-[11px]">
-              <a 
-                href={GOOGLE_FORM_URL}
-                target="_blank"
-                rel="noreferrer"
-                className="bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold px-3 py-2 rounded-xl flex items-center justify-center space-x-1.5 transition-all shadow-sm active:scale-95"
-              >
-                <ExternalLink className="w-3.5 h-3.5 shrink-0" />
-                <span>Open Google Form</span>
-              </a>
-              <a 
-                href={GOOGLE_SHEET_URL}
-                target="_blank"
-                rel="noreferrer"
-                className="bg-emerald-600 hover:bg-emerald-500 text-white font-bold px-3 py-2 rounded-xl flex items-center justify-center space-x-1.5 transition-all shadow-sm active:scale-95"
-              >
-                <FileSpreadsheet className="w-3.5 h-3.5 shrink-0" />
-                <span>View Google Sheet</span>
-              </a>
-            </div>
-          </div>
-
           {success ? (
             <div className="py-4 sm:py-6 text-center space-y-4">
               <div className="w-14 h-14 sm:w-16 sm:h-16 rounded-full bg-emerald-100 text-emerald-600 flex items-center justify-center mx-auto shadow-inner">
                 <CheckCircle2 className="w-8 h-8 sm:w-10 sm:h-10" />
               </div>
               <div className="space-y-1">
-                <div className="inline-flex items-center space-x-1 bg-amber-100 text-amber-900 text-[10px] font-black uppercase px-2.5 py-0.5 rounded-full mb-1">
-                  <span>Submitted For Admin Approval</span>
+                <div className="inline-flex items-center space-x-1 bg-emerald-100 text-emerald-900 text-[10px] font-black uppercase px-2.5 py-0.5 rounded-full mb-1">
+                  <span>✓ Stored in Google Form & Sent for Approval</span>
                 </div>
-                <h4 className="text-base sm:text-lg font-black text-slate-900">Registration Joining Request Sent!</h4>
+                <h4 className="text-base sm:text-lg font-black text-slate-900">Registration Saved Successfully!</h4>
                 <p className="text-xs text-slate-600 max-w-sm mx-auto px-2">
-                  Your joining request has been submitted to the Admin Panel. Data is automatically connected with Master Google Sheet in tab: <strong className="text-emerald-700 font-mono font-bold">event history</strong>.
+                  All registration information has been stored in the official Google Form responses sheet. Once the admin checks and approves your registration, your confirmation email and meeting link will be dispatched immediately.
                 </p>
               </div>
 
@@ -154,7 +124,7 @@ export const EventRegistrationModal: React.FC<EventRegistrationModalProps> = ({
               <div className="bg-amber-50/80 border border-amber-200 rounded-2xl p-3.5 text-left text-xs space-y-2">
                 <div className="flex items-center justify-between text-[10px] font-bold text-amber-900 uppercase tracking-wider">
                   <span>Member Registration Receipt</span>
-                  <span className="text-amber-700 font-bold">Pending Approval</span>
+                  <span className="text-amber-700 font-bold">Pending Admin Approval</span>
                 </div>
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-slate-800">
                   <div>
@@ -165,6 +135,14 @@ export const EventRegistrationModal: React.FC<EventRegistrationModalProps> = ({
                     <span className="text-[10px] text-slate-500 block">Phone Number:</span>
                     <strong className="font-bold text-slate-900">{memberPhone}</strong>
                   </div>
+                  <div>
+                    <span className="text-[10px] text-slate-500 block">Email Address:</span>
+                    <strong className="font-bold text-amber-900">{memberEmail}</strong>
+                  </div>
+                  <div>
+                    <span className="text-[10px] text-slate-500 block">Google Form Sync:</span>
+                    <strong className="text-emerald-700 font-bold">Stored in Google Form</strong>
+                  </div>
                   <div className="sm:col-span-2">
                     <span className="text-[10px] text-slate-500 block">Event Title:</span>
                     <strong className="font-bold text-amber-900">{selectedEventTitle}</strong>
@@ -174,27 +152,6 @@ export const EventRegistrationModal: React.FC<EventRegistrationModalProps> = ({
                     <strong className="font-mono font-bold text-slate-900">{paymentGateway}: {paymentRefNo}</strong>
                   </div>
                 </div>
-              </div>
-
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 pt-1">
-                <a 
-                  href={GOOGLE_FORM_URL}
-                  target="_blank"
-                  rel="noreferrer"
-                  className="bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold px-4 py-2.5 rounded-xl flex items-center justify-center space-x-1.5 text-xs transition-all shadow-sm"
-                >
-                  <ExternalLink className="w-4 h-4" />
-                  <span>Google Form</span>
-                </a>
-                <a 
-                  href={GOOGLE_SHEET_URL}
-                  target="_blank"
-                  rel="noreferrer"
-                  className="bg-emerald-600 hover:bg-emerald-500 text-white font-bold px-4 py-2.5 rounded-xl flex items-center justify-center space-x-1.5 text-xs transition-all shadow-sm"
-                >
-                  <FileSpreadsheet className="w-4 h-4" />
-                  <span>Google Sheet (tab: event history)</span>
-                </a>
               </div>
 
               <div className="pt-2">
@@ -216,8 +173,26 @@ export const EventRegistrationModal: React.FC<EventRegistrationModalProps> = ({
                 </div>
               )}
 
-              <div className="bg-emerald-50 p-3 rounded-xl border border-emerald-200 text-[11px] text-emerald-800 font-medium">
-                📊 Data automatically connects to Master Google Sheet under tab: <strong className="font-mono text-emerald-950 font-bold">event history</strong>
+              {/* Google Form Integration Notice Banner */}
+              <div className="bg-emerald-50/80 p-3 rounded-2xl border border-emerald-200 text-[11px] text-emerald-950 font-medium space-y-1.5">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center space-x-1.5 font-bold text-emerald-900 text-xs">
+                    <ShieldCheck className="w-4 h-4 text-emerald-700 shrink-0" />
+                    <span>Official Google Form & Sheet Integration</span>
+                  </div>
+                  <a
+                    href="https://docs.google.com/forms/d/17JX7qmH_lrqkT0eHE2dhuPSrIjrL2WeRcF24vDNfYJQ/viewform"
+                    target="_blank"
+                    rel="noreferrer"
+                    className="inline-flex items-center space-x-1 text-[10px] text-indigo-700 hover:text-indigo-900 font-bold underline shrink-0"
+                  >
+                    <span>Open Form Link</span>
+                    <ExternalLink className="w-2.5 h-2.5" />
+                  </a>
+                </div>
+                <p className="text-[10px] text-emerald-800 leading-snug">
+                  Every submission is automatically saved to the official Google Form responses sheet. Once approved by the executive admin, your confirmation pass and meeting link will be emailed immediately.
+                </p>
               </div>
 
               {/* 1st Input Field: Student Name */}

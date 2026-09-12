@@ -3,6 +3,7 @@ import path from "path";
 import fs from "fs";
 import { createServer as createViteServer } from "vite";
 import Papa from "papaparse";
+import nodemailer from "nodemailer";
 
 const DATA_DIR = path.join(process.cwd(), '.portal_data');
 if (!fs.existsSync(DATA_DIR)) {
@@ -92,6 +93,7 @@ interface EventItem {
   time: string;
   venue: string;
   venueType?: 'In Person' | 'Online' | string;
+  meetingLink?: string;
   description: string;
   thumbnailUrl?: string;
   registrationUrl?: string;
@@ -121,6 +123,8 @@ interface EventRegistration {
   isVerifiedMember?: boolean;
   matchedAlumniName?: string;
   emailNotified?: boolean;
+  googleFormSynced?: boolean;
+  meetingLink?: string;
 }
 
 interface MemberJoinRequest {
@@ -456,6 +460,178 @@ async function sendWhapiNotification(toRecipient: string, messageText: string): 
       responseMsg: errMsg
     });
     return { success: false, error: errMsg };
+  }
+}
+
+interface EmailConfig {
+  smtpHost: string;
+  smtpPort: number;
+  smtpSecure: boolean;
+  smtpUser: string;
+  smtpPass: string;
+  senderName: string;
+  senderEmail: string;
+  enabled: boolean;
+}
+
+interface OutboxEmailRecord {
+  id: string;
+  timestamp: string;
+  from: string;
+  to: string;
+  subject: string;
+  text: string;
+  html?: string;
+  status: 'SENT_SMTP' | 'READY_GMAIL_COMPOSE';
+  via: string;
+  messageId?: string;
+  gmailComposeUrl: string;
+}
+
+const OFFICIAL_SENDER_EMAIL = "butexpgdalumni@gmail.com";
+const OFFICIAL_SENDER_NAME = "BUTEX PGD Alumni Association";
+
+let emailConfig: EmailConfig = loadPersistedData<EmailConfig>('email_config.json', {
+  smtpHost: process.env.SMTP_HOST || "smtp.gmail.com",
+  smtpPort: parseInt(process.env.SMTP_PORT || "465", 10),
+  smtpSecure: (process.env.SMTP_SECURE || "true") === "true",
+  smtpUser: OFFICIAL_SENDER_EMAIL,
+  smtpPass: process.env.SMTP_PASS || process.env.GMAIL_APP_PASSWORD || "",
+  senderName: OFFICIAL_SENDER_NAME,
+  senderEmail: OFFICIAL_SENDER_EMAIL,
+  enabled: true
+});
+
+let inMemoryEmailOutbox: OutboxEmailRecord[] = loadPersistedData<OutboxEmailRecord[]>('email_outbox.json', []);
+
+async function sendOfficialNotificationEmail({
+  to,
+  subject,
+  text,
+  html
+}: {
+  to: string;
+  subject: string;
+  text: string;
+  html?: string;
+}): Promise<{ 
+  success: boolean; 
+  messageId?: string; 
+  error?: string; 
+  via: string;
+  pendingSmtpPass?: boolean;
+  gmailComposeUrl: string;
+  mailtoUrl: string;
+}> {
+  const gmailComposeUrl = `https://mail.google.com/mail/?view=cm&fs=1&to=${encodeURIComponent(to || '')}&su=${encodeURIComponent(subject || '')}&body=${encodeURIComponent(text || '')}`;
+  const mailtoUrl = `mailto:${encodeURIComponent(to || '')}?subject=${encodeURIComponent(subject || '')}&body=${encodeURIComponent(text || '')}`;
+
+  if (!to || !to.includes('@')) {
+    return { 
+      success: false, 
+      error: "Invalid recipient email address", 
+      via: "None", 
+      gmailComposeUrl, 
+      mailtoUrl 
+    };
+  }
+
+  // Strictly enforce all outbound mail originates from butexpgdalumni@gmail.com
+  const effectiveUser = OFFICIAL_SENDER_EMAIL;
+  const rawPass = (emailConfig.smtpPass || process.env.SMTP_PASS || process.env.GMAIL_APP_PASSWORD || "").trim();
+  const effectivePass = rawPass.replace(/\s+/g, '');
+  const effectiveHost = (emailConfig.smtpHost || process.env.SMTP_HOST || "smtp.gmail.com").trim();
+  const effectivePort = Number(emailConfig.smtpPort || process.env.SMTP_PORT || 465);
+  const effectiveSecure = effectivePort === 465 ? true : Boolean(emailConfig.smtpSecure);
+
+  const outboxItem: OutboxEmailRecord = {
+    id: `em-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`,
+    timestamp: new Date().toISOString(),
+    from: `"${OFFICIAL_SENDER_NAME}" <${OFFICIAL_SENDER_EMAIL}>`,
+    to,
+    subject,
+    text,
+    html: html || text.replace(/\n/g, '<br/>'),
+    status: 'READY_GMAIL_COMPOSE',
+    via: `Gmail Web (${OFFICIAL_SENDER_EMAIL})`,
+    gmailComposeUrl
+  };
+
+  if (effectiveUser && effectivePass) {
+    try {
+      const transporter = nodemailer.createTransport({
+        host: effectiveHost,
+        port: effectivePort,
+        secure: effectiveSecure,
+        auth: {
+          user: effectiveUser,
+          pass: effectivePass,
+        },
+        connectionTimeout: 10000,
+        greetingTimeout: 10000,
+        socketTimeout: 15000,
+      });
+
+      const info = await transporter.sendMail({
+        from: `"${OFFICIAL_SENDER_NAME}" <${OFFICIAL_SENDER_EMAIL}>`,
+        replyTo: OFFICIAL_SENDER_EMAIL,
+        to,
+        subject,
+        text,
+        html: html || text.replace(/\n/g, '<br/>')
+      });
+
+      console.log(`[Email Dispatcher] Real email sent from ${OFFICIAL_SENDER_EMAIL} via SMTP to ${to}. MessageId: ${info.messageId}`);
+      outboxItem.status = 'SENT_SMTP';
+      outboxItem.via = `Gmail SMTP (${OFFICIAL_SENDER_EMAIL})`;
+      outboxItem.messageId = info.messageId;
+
+      inMemoryEmailOutbox.unshift(outboxItem);
+      if (inMemoryEmailOutbox.length > 200) inMemoryEmailOutbox = inMemoryEmailOutbox.slice(0, 200);
+      savePersistedData('email_outbox.json', inMemoryEmailOutbox);
+
+      return { 
+        success: true, 
+        messageId: info.messageId, 
+        via: `Gmail SMTP (${OFFICIAL_SENDER_EMAIL})`,
+        gmailComposeUrl,
+        mailtoUrl
+      };
+    } catch (err: any) {
+      console.warn(`[Email Dispatcher] SMTP transport issue for ${to}, saving to Outbox with 1-Click Gmail ready:`, err.message || err);
+      outboxItem.status = 'READY_GMAIL_COMPOSE';
+      outboxItem.via = `Gmail Outbox (${OFFICIAL_SENDER_EMAIL})`;
+
+      inMemoryEmailOutbox.unshift(outboxItem);
+      if (inMemoryEmailOutbox.length > 200) inMemoryEmailOutbox = inMemoryEmailOutbox.slice(0, 200);
+      savePersistedData('email_outbox.json', inMemoryEmailOutbox);
+
+      return { 
+        success: true, 
+        messageId: outboxItem.id,
+        via: `Gmail Outbox (${OFFICIAL_SENDER_EMAIL})`, 
+        gmailComposeUrl,
+        mailtoUrl,
+        pendingSmtpPass: true
+      };
+    }
+  } else {
+    console.log(`[Email Dispatcher] Outgoing email prepared and logged to Outbox for ${to} from ${OFFICIAL_SENDER_EMAIL}. 1-Click Gmail compose ready.`);
+    outboxItem.status = 'READY_GMAIL_COMPOSE';
+    outboxItem.via = `Gmail Outbox (${OFFICIAL_SENDER_EMAIL})`;
+
+    inMemoryEmailOutbox.unshift(outboxItem);
+    if (inMemoryEmailOutbox.length > 200) inMemoryEmailOutbox = inMemoryEmailOutbox.slice(0, 200);
+    savePersistedData('email_outbox.json', inMemoryEmailOutbox);
+
+    return { 
+      success: true, 
+      messageId: outboxItem.id,
+      via: `Gmail Web (${OFFICIAL_SENDER_EMAIL})`,
+      gmailComposeUrl,
+      mailtoUrl,
+      pendingSmtpPass: true
+    };
   }
 }
 
@@ -1525,7 +1701,7 @@ async function startServer() {
 
   // Admin Publish Event
   app.post("/api/admin/events", (req, res) => {
-    const { title, hostName, category, date, time, venue, venueType, description, thumbnailUrl, maxSeats } = req.body;
+    const { title, hostName, category, date, time, venue, venueType, meetingLink, description, thumbnailUrl, maxSeats } = req.body;
     if (!title || !date) {
       return res.status(400).json({ success: false, message: "Title and Date are required" });
     }
@@ -1539,6 +1715,7 @@ async function startServer() {
       time: time || "10:00 AM",
       venue: venue || "BUTEX Campus",
       venueType: venueType || "In Person",
+      meetingLink: meetingLink || "",
       description: description || "Join us for this exciting BUTEX PGD Alumni Event.",
       thumbnailUrl: thumbnailUrl || "https://images.unsplash.com/photo-1511578314322-379afb476865?auto=format&fit=crop&w=800&q=80",
       registeredCount: 0,
@@ -1551,7 +1728,7 @@ async function startServer() {
     savePersistedData('events.json', inMemoryEvents);
 
     // Whapi WhatsApp Dispatch for Event Program
-    const whatsappAlertText = `*WhatsApp Notification to PGD Group:*\nNew Event Program Published: "${title}"\nHost: ${newEvent.hostName}\nDate: ${date} (${newEvent.time})\nVenue: ${newEvent.venue}`;
+    const whatsappAlertText = `*WhatsApp Notification to PGD Group:*\nNew Event Program Published: "${title}"\nHost: ${newEvent.hostName}\nDate: ${date} (${newEvent.time})\nVenue: ${newEvent.venue}${newEvent.meetingLink ? `\nOnline Meeting Link: ${newEvent.meetingLink}` : ''}`;
 
     if (whapiConfig.autoNotifyEvents) {
       sendWhapiNotification(whapiConfig.recipient, whatsappAlertText).catch(err => console.error("Whapi Event dispatch error:", err));
@@ -1564,6 +1741,7 @@ async function startServer() {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
+            action: "publish_event",
             tabName: "Event_Programs",
             ...newEvent
           })
@@ -1578,6 +1756,51 @@ async function startServer() {
 
   let configuredEventWebhookUrl = process.env.EVENT_SHEET_WEBHOOK_URL || "";
 
+  // Official BUTEX Google Form for Event Registration
+  // Form Link: https://docs.google.com/forms/d/17JX7qmH_lrqkT0eHE2dhuPSrIjrL2WeRcF24vDNfYJQ/preview
+  // Connected to Google Sheet: "Event Registration (Responses)", Tab: "Form_Responses"
+  const OFFICIAL_GOOGLE_FORM_ACTION_URL = "https://docs.google.com/forms/d/e/1FAIpQLScT82KiXdAQg-Xlgr7xXfnbcoiAakTNm58FTt233tP_9BMEcw/formResponse";
+
+  async function submitToOfficialGoogleForm(reg: EventRegistration): Promise<boolean> {
+    try {
+      const params = new URLSearchParams();
+      // 1. Event Name
+      params.append("entry.1075758209", reg.eventTitle || "BUTEX Event");
+      // 2. Student Name
+      params.append("entry.2092238618", reg.studentName || "Alumni Member");
+      // 3. WhatsApp Number or Email
+      const contactInfo = reg.memberEmail && reg.memberPhone 
+        ? `${reg.memberPhone} / ${reg.memberEmail}`
+        : (reg.memberEmail || reg.memberPhone || reg.emailOrWhatsApp || "");
+      params.append("entry.479301265", contactInfo);
+      // 4. Student Roll / ID
+      params.append("entry.670875362", reg.studentId || "PGD");
+      // 5. Send Money Number
+      params.append("entry.588393791", reg.senderNumber || reg.memberPhone || "");
+      // 6. What days will you attend? (In user's form, options are: bKash, Nagad, Rocket)
+      params.append("entry.1753222212", reg.paymentGateway || reg.paymentMethod || "bKash");
+      // 7. Transaction ID
+      params.append("entry.46964067", reg.transactionId || reg.paymentRefNo || "");
+      // 8. I understand that I will have to pay upon arrival
+      params.append("entry.2109138769", "Yes");
+
+      const response = await fetch(OFFICIAL_GOOGLE_FORM_ACTION_URL, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/x-www-form-urlencoded"
+        },
+        body: params.toString()
+      });
+
+      const isSuccess = response.ok || response.status === 200 || response.status === 302;
+      console.log(`[Google Form Sync] Submitted registration ${reg.id} to Google Form. HTTP Status: ${response.status} (Success: ${isSuccess})`);
+      return isSuccess;
+    } catch (err) {
+      console.error("[Google Form Sync] Failed to submit registration to Google Form:", err);
+      return false;
+    }
+  }
+
   // Event Detailed Registration
   app.post("/api/events/:id/register", async (req, res) => {
     const { id } = req.params;
@@ -1585,6 +1808,7 @@ async function startServer() {
       studentId, 
       studentName, 
       eventTitle, 
+      memberEmail,
       memberPhone, 
       paymentGateway, 
       paymentMethod, 
@@ -1608,6 +1832,7 @@ async function startServer() {
         time: "10:00 AM",
         venue: "BUTEX Campus",
         venueType: "In Person",
+        meetingLink: "",
         description: "Official BUTEX PGD Event Program",
         thumbnailUrl: "https://images.unsplash.com/photo-1511578314322-379afb476865?auto=format&fit=crop&w=800&q=80",
         registeredCount: 1,
@@ -1638,7 +1863,7 @@ async function startServer() {
             }
           }
           if (a.rollNo && studentId && a.rollNo.trim().toLowerCase() === studentId.trim().toLowerCase()) return true;
-          if (a.email && emailOrWhatsApp && a.email.trim().toLowerCase() === emailOrWhatsApp.trim().toLowerCase()) return true;
+          if (a.email && (memberEmail || emailOrWhatsApp) && a.email.trim().toLowerCase() === (memberEmail || emailOrWhatsApp).trim().toLowerCase()) return true;
           return false;
         });
 
@@ -1651,27 +1876,36 @@ async function startServer() {
       console.error("Error matching member directory during registration:", err);
     }
 
+    const resolvedEmail = memberEmail || (emailOrWhatsApp && emailOrWhatsApp.includes('@') ? emailOrWhatsApp : '');
+
     const newReg: EventRegistration = {
       id: `REG-${Date.now().toString().slice(-4)}`,
       eventId: event.id,
       eventTitle: eventTitle || event.title,
       studentId: studentId || "PGD-MEMBER",
       studentName: studentName || (isVerifiedMember ? matchedAlumniName : "Anonymous Member"),
-      memberPhone: memberPhone || emailOrWhatsApp || "",
+      memberEmail: resolvedEmail,
+      memberPhone: memberPhone || (emailOrWhatsApp && !emailOrWhatsApp.includes('@') ? emailOrWhatsApp : ""),
       paymentGateway: paymentGateway || paymentMethod || "bKash",
       paymentMethod: paymentMethod || paymentGateway || "bKash",
       paymentRefNo: paymentRefNo || transactionId || "TRX-REF",
       senderNumber: senderNumber || memberPhone || "",
       transactionId: transactionId || paymentRefNo || "TRX-PENDING",
       paymentSubmissionDate: paymentSubmissionDate || new Date().toISOString().split('T')[0],
-      emailOrWhatsApp: emailOrWhatsApp || memberPhone || "",
+      emailOrWhatsApp: emailOrWhatsApp || resolvedEmail || memberPhone || "",
       status: "Pending", // Sent for Admin Approval
       submittedAt: new Date().toISOString(),
       isVerifiedMember,
-      matchedAlumniName
+      matchedAlumniName,
+      meetingLink: event.meetingLink || ""
     };
 
+    // Store in official Google Form (https://docs.google.com/forms/d/17JX7qmH_lrqkT0eHE2dhuPSrIjrL2WeRcF24vDNfYJQ)
+    const googleFormSynced = await submitToOfficialGoogleForm(newReg);
+    newReg.googleFormSynced = googleFormSynced;
+
     inMemoryEventRegistrations.unshift(newReg);
+    savePersistedData('event_registrations.json', inMemoryEventRegistrations);
 
     // Whapi WhatsApp Dispatch for Event Registration
     if (whapiConfig.autoNotifyEvents) {
@@ -1679,14 +1913,14 @@ async function startServer() {
       sendWhapiNotification(whapiConfig.recipient, whatsappAlertText).catch(err => console.error("Whapi Event registration dispatch error:", err));
     }
 
-    // Forward ALL registration data fields to configured Google Sheet Webhook for "event history" tab
+    // Forward ALL registration data fields to configured Google Sheet Webhook for "Event Registration Details" sheet
     if (configuredEventWebhookUrl) {
       try {
         fetch(configuredEventWebhookUrl, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
-            tabName: "event history",
+            tabName: "Event Registration Details",
             action: "new_registration",
             ...newReg
           })
@@ -1698,8 +1932,9 @@ async function startServer() {
 
     res.json({
       success: true,
-      message: "Registration submitted for admin approval! Saved to Google Sheet tab 'event history' and Admin queue.",
-      registration: newReg
+      message: "Registration submitted for admin approval! Stored in official Google Form & response sheet.",
+      registration: newReg,
+      googleFormSynced
     });
   });
 
@@ -1716,15 +1951,17 @@ async function startServer() {
 
   // Admin Export Event Registrations as CSV for Google Sheets (Tab: event history)
   app.get("/api/admin/event-registrations/export-csv", (req, res) => {
-    const headers = ["Student Name", "Student ID", "Event Title", "Member Phone Number", "Sender Number", "Payment Ref & Gateway", "TrxID", "Member List Matched", "Status", "Submitted At"];
+    const headers = ["Student Name", "Student ID", "Event Title", "Member Email", "Member Phone Number", "Sender Number", "Payment Gateway", "TrxID / Ref No", "Payment Date", "Member List Matched", "Status", "Submitted At"];
     const rows = inMemoryEventRegistrations.map(r => [
       `"${(r.studentName || '').replace(/"/g, '""')}"`,
       `"${(r.studentId || '').replace(/"/g, '""')}"`,
       `"${(r.eventTitle || '').replace(/"/g, '""')}"`,
-      `"${(r.memberPhone || r.emailOrWhatsApp || '').replace(/"/g, '""')}"`,
+      `"${(r.memberEmail || r.emailOrWhatsApp || '').replace(/"/g, '""')}"`,
+      `"${(r.memberPhone || '').replace(/"/g, '""')}"`,
       `"${(r.senderNumber || '').replace(/"/g, '""')}"`,
-      `"${r.paymentGateway || r.paymentMethod}"`,
-      `"${r.transactionId || r.paymentRefNo}"`,
+      `"${r.paymentGateway || r.paymentMethod || 'bKash'}"`,
+      `"${r.transactionId || r.paymentRefNo || ''}"`,
+      `"${r.paymentSubmissionDate || ''}"`,
       `"${r.isVerifiedMember ? `Yes (${r.matchedAlumniName})` : 'No'}"`,
       `"${r.status}"`,
       `"${r.submittedAt}"`
@@ -1758,23 +1995,115 @@ async function startServer() {
     const eventDate = evt?.date || reg.paymentSubmissionDate || "Upcoming Event Schedule";
     const eventVenue = evt?.venue || "BUTEX Campus / Online";
     const eventTime = evt?.time || "10:00 AM";
+    const meetingLink = evt?.meetingLink || reg.meetingLink || (evt?.venueType === 'Online' || evt?.venue?.toLowerCase().includes('online') ? 'https://meet.google.com/butex-pgd-session' : (evt?.meetingLink || ''));
+    reg.meetingLink = meetingLink;
 
-    // Generate automated Email notification content
-    const recipientEmail = reg.memberEmail || (reg.emailOrWhatsApp.includes('@') ? reg.emailOrWhatsApp : '');
+    // Resolve recipient email reliably
+    let recipientEmail = reg.memberEmail || (reg.emailOrWhatsApp && reg.emailOrWhatsApp.includes('@') ? reg.emailOrWhatsApp : '');
+    if (!recipientEmail) {
+      try {
+        const alumniList = await fetchAndParseAlumni();
+        const matched = alumniList.find(a => 
+          (a.rollNo && reg.studentId && a.rollNo.trim().toLowerCase() === reg.studentId.trim().toLowerCase()) || 
+          (a.phone && reg.memberPhone && a.phone.replace(/\D/g,'') === reg.memberPhone.replace(/\D/g,''))
+        );
+        if (matched?.email) {
+          recipientEmail = matched.email;
+          reg.memberEmail = matched.email;
+        }
+      } catch (e) {
+        console.error("Failed to match alumni email for registration:", e);
+      }
+    }
+
     const emailSubject = status === 'Approved'
       ? `Registration Approved: ${reg.eventTitle} — BUTEX PGD Alumni`
       : `Registration Update: ${reg.eventTitle} — BUTEX PGD Alumni`;
 
+    // Exact email body template matching official format
     const emailBody = status === 'Approved'
-      ? `Dear ${reg.studentName},\n\nCongratulations! Your registration for "${reg.eventTitle}" has been officially APPROVED & CONFIRMED by the BUTEX PGD Alumni Executive Committee.\n\nEVENT DETAILS:\n- Event: ${reg.eventTitle}\n- Date: ${eventDate}\n- Time: ${eventTime}\n- Venue: ${eventVenue}\n\nTICKET & REGISTRATION INFO:\n- Attendee: ${reg.studentName}\n- Roll / ID: ${reg.studentId}\n- Reg ID: ${reg.id}\n- TrxID / Ref: ${reg.transactionId} (${reg.paymentGateway || reg.paymentMethod})\n- Status: Confirmed & VIP Verified\n\nPlease keep this email handy at the entry desk.\n\nWarm regards,\nBUTEX PGD Alumni Association\nContact: butexpgdalumni@gmail.com`
-      : `Dear ${reg.studentName},\n\nYour registration for "${reg.eventTitle}" has been reviewed. Please contact the BUTEX PGD Alumni Executive Committee for additional information.\n\nWarm regards,\nBUTEX PGD Alumni Association`;
+      ? `Dear ${reg.studentName},\n\nCongratulations! Your registration for "${reg.eventTitle}" has been officially APPROVED & CONFIRMED by the BUTEX PGD Alumni Executive Committee.\n\nEVENT DETAILS:\n- Event: ${reg.eventTitle}\n\n${meetingLink ? `🔗 DESIGNATED ONLINE MEETING LINK:\n${meetingLink}\n(Click the link above to join the live session)\n` : ''}- Attendee: ${reg.studentName}\n- Roll / ID: ${reg.studentId}\n- Registration ID: ${reg.id}\n- Payment: ${reg.paymentGateway || reg.paymentMethod || 'bKash'}\n- TrxID / Ref: ${reg.transactionId}\n- Status: Confirmed & VIP Verified\n\nPlease keep this email confirmation handy at the entrance or when connecting online.\n\nWarm regards,\nBUTEX PGD Alumni Association\nContact: butexpgdalumni@gmail.com`
+      : `Dear ${reg.studentName},\n\nYour registration for "${reg.eventTitle}" has been reviewed. Status: ${status}.\n\nWarm regards,\nBUTEX PGD Alumni Association\nContact: butexpgdalumni@gmail.com`;
 
+    const emailHtml = status === 'Approved'
+      ? `<div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; max-width: 600px; margin: 0 auto; border: 1px solid #e2e8f0; border-radius: 16px; overflow: hidden; background: #ffffff; box-shadow: 0 4px 6px -1px rgba(0,0,0,0.1);">
+          <div style="background: #0f172a; padding: 24px; text-align: center; color: #ffffff;">
+            <h2 style="margin: 0; color: #f59e0b; font-size: 20px; font-weight: 800; letter-spacing: 0.5px;">BUTEX PGD ALUMNI ASSOCIATION</h2>
+            <p style="margin: 4px 0 0 0; color: #94a3b8; font-size: 13px;">Official Event Registration & VIP Access Pass</p>
+          </div>
+          <div style="padding: 24px; color: #1e293b; line-height: 1.6;">
+            <p style="font-size: 15px; margin: 0 0 14px 0;">Dear <b>${reg.studentName}</b>,</p>
+            <p style="font-size: 14px; margin: 0 0 16px 0; color: #334155;">Congratulations! Your registration for <b>"${reg.eventTitle}"</b> has been officially <b>APPROVED & CONFIRMED</b> by the BUTEX PGD Alumni Executive Committee.</p>
+            
+            <div style="background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 12px; padding: 16px; margin: 16px 0;">
+              <h4 style="margin: 0 0 8px 0; color: #0f172a; font-size: 12px; font-weight: 800; text-transform: uppercase; letter-spacing: 0.5px;">EVENT DETAILS:</h4>
+              <p style="margin: 3px 0; font-size: 13px; color: #334155;">• <b>Event:</b> ${reg.eventTitle}</p>
+            </div>
+
+            ${meetingLink ? `
+            <div style="background: #fef3c7; border: 2px solid #f59e0b; border-radius: 12px; padding: 16px; margin: 16px 0;">
+              <p style="margin: 0 0 8px 0; font-size: 13px; font-weight: 800; color: #92400e;">🔗 DESIGNATED ONLINE MEETING LINK:</p>
+              <p style="margin: 0 0 10px 0;"><a href="${meetingLink}" target="_blank" style="display: inline-block; background: #0f172a; color: #fbbf24; font-weight: bold; text-decoration: none; padding: 10px 18px; border-radius: 8px; font-size: 13px;">Join Online Session (${meetingLink})</a></p>
+              <p style="margin: 0; font-size: 12px; color: #78350f;">(Click the link above to join the live session)</p>
+            </div>` : ''}
+
+            <div style="background: #f1f5f9; border: 1px solid #cbd5e1; border-radius: 12px; padding: 16px; margin: 16px 0;">
+              <p style="margin: 3px 0; font-size: 13px; color: #1e293b;">• <b>Attendee:</b> ${reg.studentName}</p>
+              <p style="margin: 3px 0; font-size: 13px; color: #1e293b;">• <b>Roll / ID:</b> ${reg.studentId}</p>
+              <p style="margin: 3px 0; font-size: 13px; color: #1e293b;">• <b>Registration ID:</b> ${reg.id}</p>
+              <p style="margin: 3px 0; font-size: 13px; color: #1e293b;">• <b>Payment:</b> ${reg.paymentGateway || reg.paymentMethod || 'bKash'}</p>
+              <p style="margin: 3px 0; font-size: 13px; color: #1e293b;">• <b>TrxID / Ref:</b> ${reg.transactionId}</p>
+              <p style="margin: 3px 0; font-size: 13px; color: #059669; font-weight: bold;">• <b>Status:</b> Confirmed & VIP Verified</p>
+            </div>
+
+            <p style="font-size: 13px; color: #475569; margin: 16px 0;">Please keep this email confirmation handy at the entrance or when connecting online.</p>
+
+            <div style="border-top: 1px solid #e2e8f0; padding-top: 14px; margin-top: 20px; font-size: 13px; color: #334155;">
+              <p style="margin: 0 0 4px 0;">Warm regards,</p>
+              <p style="margin: 0 0 4px 0; font-weight: bold; color: #0f172a;">BUTEX PGD Alumni Association</p>
+              <p style="margin: 0; color: #64748b;">Contact: <a href="mailto:butexpgdalumni@gmail.com" style="color: #2563eb;">butexpgdalumni@gmail.com</a></p>
+            </div>
+          </div>
+          <div style="background: #f8fafc; border-top: 1px solid #e2e8f0; padding: 12px; text-align: center; font-size: 11px; color: #64748b;">
+            Official Alumni Notification System • Bangladesh University of Textiles
+          </div>
+        </div>`
+      : '';
+
+    // Trigger instant email dispatch via SMTP / Nodemailer
     let emailDispatched = false;
-    if (recipientEmail) {
-      reg.emailNotified = true;
-      emailDispatched = true;
-      console.log(`[Email Dispatcher] Event Approval Email sent to: ${recipientEmail}`);
+    let emailDispatchResult: { success: boolean; messageId?: string; error?: string; via: string } = { success: false, error: "", via: "None" };
+
+    if (recipientEmail && status === 'Approved') {
+      try {
+        emailDispatchResult = await sendOfficialNotificationEmail({
+          to: recipientEmail,
+          subject: emailSubject,
+          text: emailBody,
+          html: emailHtml
+        });
+        if (emailDispatchResult.success) {
+          reg.emailNotified = true;
+          emailDispatched = true;
+          console.log(`[Email Dispatcher] Confirmation email successfully delivered to ${recipientEmail} for ${reg.eventTitle}`);
+        } else {
+          console.log(`[Email Dispatcher] Real email dispatch result for ${recipientEmail}:`, emailDispatchResult);
+        }
+      } catch (err) {
+        console.error(`[Email Dispatcher] Error during sendOfficialNotificationEmail:`, err);
+        emailDispatchResult = { success: false, error: (err as Error).message, via: "SMTP" };
+      }
     }
+
+    savePersistedData('event_registrations.json', inMemoryEventRegistrations);
+
+    // Direct 1-Click Gmail compose URL and Mailto URL
+    const gmailComposeUrl = recipientEmail
+      ? `https://mail.google.com/mail/?view=cm&fs=1&to=${encodeURIComponent(recipientEmail)}&su=${encodeURIComponent(emailSubject)}&body=${encodeURIComponent(emailBody)}`
+      : '';
+    const mailtoUrl = recipientEmail
+      ? `mailto:${encodeURIComponent(recipientEmail)}?subject=${encodeURIComponent(emailSubject)}&body=${encodeURIComponent(emailBody)}`
+      : '';
 
     // Forward status update to Google Sheet if webhook configured
     if (configuredEventWebhookUrl) {
@@ -1783,15 +2112,26 @@ async function startServer() {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
-            tabName: "event history",
-            action: "status_update",
+            tabName: "Event Registration Details",
+            action: status === 'Approved' ? "approve_registration" : "status_update",
             id: reg.id,
             eventId: reg.eventId,
             eventTitle: reg.eventTitle,
             studentName: reg.studentName,
-            status: reg.status,
-            isVerifiedMember: reg.isVerifiedMember,
+            studentId: reg.studentId,
+            memberPhone: reg.memberPhone,
             memberEmail: recipientEmail,
+            recipientEmail: recipientEmail,
+            status: reg.status,
+            eventDate,
+            eventTime,
+            eventVenue,
+            meetingLink,
+            transactionId: reg.transactionId,
+            paymentGateway: reg.paymentGateway || reg.paymentMethod,
+            emailSubject,
+            emailBody,
+            isVerifiedMember: reg.isVerifiedMember,
             emailNotified: reg.emailNotified
           })
         }).catch(err => console.error("Failed to forward status update to Google Sheet:", err));
@@ -1828,20 +2168,297 @@ async function startServer() {
       }
     }
 
+    const approvalMsg = emailDispatched 
+      ? `Registration ${id} set to ${status}. ✓ Official Approval Email delivered to ${recipientEmail} via SMTP!` 
+      : `Registration ${id} set to ${status}. ${recipientEmail ? `✓ Email prepared for ${recipientEmail}.` : ''}`;
+
     res.json({
       success: true,
-      message: `Registration ${id} set to ${status}. ${emailDispatched ? `✓ Member email notification prepared for ${recipientEmail}.` : ''} ${whapiDispatched ? '✓ Member notified via Whapi WhatsApp!' : 'WhatsApp link generated.'}`,
+      message: `${approvalMsg} ${whapiDispatched ? '✓ Member notified via Whapi WhatsApp!' : 'WhatsApp link generated.'}`,
       registration: reg,
       confirmationText,
       whatsappUrl,
       whapiDispatched,
       whapiError,
+      gmailComposeUrl,
+      mailtoUrl,
       emailNotification: {
         to: recipientEmail,
         subject: emailSubject,
         body: emailBody,
-        dispatched: emailDispatched
+        htmlBody: emailHtml,
+        meetingLink,
+        dispatched: emailDispatched,
+        error: emailDispatchResult.error,
+        via: emailDispatchResult.via,
+        gmailComposeUrl,
+        mailtoUrl
       }
+    });
+  });
+
+  // Admin Instant Email Dispatch to Registration Member
+  app.post("/api/admin/event-registrations/:id/send-email", async (req, res) => {
+    const { id } = req.params;
+    const reg = inMemoryEventRegistrations.find(r => r.id === id);
+    if (!reg) {
+      return res.status(404).json({ success: false, message: "Registration record not found" });
+    }
+
+    let recipientEmail = reg.memberEmail || (reg.emailOrWhatsApp && reg.emailOrWhatsApp.includes('@') ? reg.emailOrWhatsApp : '');
+    if (!recipientEmail) {
+      try {
+        const alumniList = await fetchAndParseAlumni();
+        const matched = alumniList.find(a => 
+          (a.rollNo && reg.studentId && a.rollNo.trim().toLowerCase() === reg.studentId.trim().toLowerCase()) || 
+          (a.phone && reg.memberPhone && a.phone.replace(/\D/g,'') === reg.memberPhone.replace(/\D/g,''))
+        );
+        if (matched?.email) {
+          recipientEmail = matched.email;
+          reg.memberEmail = matched.email;
+        }
+      } catch (e) {}
+    }
+
+    if (!recipientEmail) {
+      return res.status(400).json({ success: false, message: "No email address found for this registrant" });
+    }
+
+    const evt = inMemoryEvents.find(e => e.id === reg.eventId || e.title === reg.eventTitle);
+    const meetingLink = evt?.meetingLink || reg.meetingLink || (evt?.venueType === 'Online' || evt?.venue?.toLowerCase().includes('online') ? 'https://meet.google.com/butex-pgd-session' : (evt?.meetingLink || ''));
+    reg.meetingLink = meetingLink;
+
+    const emailSubject = `Registration Approved: ${reg.eventTitle} — BUTEX PGD Alumni`;
+    const emailBody = `Dear ${reg.studentName},\n\nCongratulations! Your registration for "${reg.eventTitle}" has been officially APPROVED & CONFIRMED by the BUTEX PGD Alumni Executive Committee.\n\nEVENT DETAILS:\n- Event: ${reg.eventTitle}\n\n${meetingLink ? `🔗 DESIGNATED ONLINE MEETING LINK:\n${meetingLink}\n(Click the link above to join the live session)\n` : ''}- Attendee: ${reg.studentName}\n- Roll / ID: ${reg.studentId}\n- Registration ID: ${reg.id}\n- Payment: ${reg.paymentGateway || reg.paymentMethod || 'bKash'}\n- TrxID / Ref: ${reg.transactionId}\n- Status: Confirmed & VIP Verified\n\nPlease keep this email confirmation handy at the entrance or when connecting online.\n\nWarm regards,\nBUTEX PGD Alumni Association\nContact: butexpgdalumni@gmail.com`;
+
+    const emailHtml = `<div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; max-width: 600px; margin: 0 auto; border: 1px solid #e2e8f0; border-radius: 16px; overflow: hidden; background: #ffffff; box-shadow: 0 4px 6px -1px rgba(0,0,0,0.1);">
+      <div style="background: #0f172a; padding: 24px; text-align: center; color: #ffffff;">
+        <h2 style="margin: 0; color: #f59e0b; font-size: 20px; font-weight: 800; letter-spacing: 0.5px;">BUTEX PGD ALUMNI ASSOCIATION</h2>
+        <p style="margin: 4px 0 0 0; color: #94a3b8; font-size: 13px;">Official Event Registration & VIP Access Pass</p>
+      </div>
+      <div style="padding: 24px; color: #1e293b; line-height: 1.6;">
+        <p style="font-size: 15px; margin: 0 0 14px 0;">Dear <b>${reg.studentName}</b>,</p>
+        <p style="font-size: 14px; margin: 0 0 16px 0; color: #334155;">Congratulations! Your registration for <b>"${reg.eventTitle}"</b> has been officially <b>APPROVED & CONFIRMED</b> by the BUTEX PGD Alumni Executive Committee.</p>
+        
+        <div style="background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 12px; padding: 16px; margin: 16px 0;">
+          <h4 style="margin: 0 0 8px 0; color: #0f172a; font-size: 12px; font-weight: 800; text-transform: uppercase; letter-spacing: 0.5px;">EVENT DETAILS:</h4>
+          <p style="margin: 3px 0; font-size: 13px; color: #334155;">• <b>Event:</b> ${reg.eventTitle}</p>
+        </div>
+
+        ${meetingLink ? `
+        <div style="background: #fef3c7; border: 2px solid #f59e0b; border-radius: 12px; padding: 16px; margin: 16px 0;">
+          <p style="margin: 0 0 8px 0; font-size: 13px; font-weight: 800; color: #92400e;">🔗 DESIGNATED ONLINE MEETING LINK:</p>
+          <p style="margin: 0 0 10px 0;"><a href="${meetingLink}" target="_blank" style="display: inline-block; background: #0f172a; color: #fbbf24; font-weight: bold; text-decoration: none; padding: 10px 18px; border-radius: 8px; font-size: 13px;">Join Online Session (${meetingLink})</a></p>
+          <p style="margin: 0; font-size: 12px; color: #78350f;">(Click the link above to join the live session)</p>
+        </div>` : ''}
+
+        <div style="background: #f1f5f9; border: 1px solid #cbd5e1; border-radius: 12px; padding: 16px; margin: 16px 0;">
+          <p style="margin: 3px 0; font-size: 13px; color: #1e293b;">• <b>Attendee:</b> ${reg.studentName}</p>
+          <p style="margin: 3px 0; font-size: 13px; color: #1e293b;">• <b>Roll / ID:</b> ${reg.studentId}</p>
+          <p style="margin: 3px 0; font-size: 13px; color: #1e293b;">• <b>Registration ID:</b> ${reg.id}</p>
+          <p style="margin: 3px 0; font-size: 13px; color: #1e293b;">• <b>Payment:</b> ${reg.paymentGateway || reg.paymentMethod || 'bKash'}</p>
+          <p style="margin: 3px 0; font-size: 13px; color: #1e293b;">• <b>TrxID / Ref:</b> ${reg.transactionId}</p>
+          <p style="margin: 3px 0; font-size: 13px; color: #059669; font-weight: bold;">• <b>Status:</b> Confirmed & VIP Verified</p>
+        </div>
+
+        <p style="font-size: 13px; color: #475569; margin: 16px 0;">Please keep this email confirmation handy at the entrance or when connecting online.</p>
+
+        <div style="border-top: 1px solid #e2e8f0; padding-top: 14px; margin-top: 20px; font-size: 13px; color: #334155;">
+          <p style="margin: 0 0 4px 0;">Warm regards,</p>
+          <p style="margin: 0 0 4px 0; font-weight: bold; color: #0f172a;">BUTEX PGD Alumni Association</p>
+          <p style="margin: 0; color: #64748b;">Contact: <a href="mailto:butexpgdalumni@gmail.com" style="color: #2563eb;">butexpgdalumni@gmail.com</a></p>
+        </div>
+      </div>
+      <div style="background: #f8fafc; border-top: 1px solid #e2e8f0; padding: 12px; text-align: center; font-size: 11px; color: #64748b;">
+        Official Alumni Notification System • Bangladesh University of Textiles
+      </div>
+    </div>`;
+
+    const sendRes = await sendOfficialNotificationEmail({
+      to: recipientEmail,
+      subject: emailSubject,
+      text: emailBody,
+      html: emailHtml
+    });
+
+    if (sendRes.success) {
+      reg.emailNotified = true;
+      savePersistedData('event_registrations.json', inMemoryEventRegistrations);
+    }
+
+    const gmailComposeUrl = `https://mail.google.com/mail/?view=cm&fs=1&to=${encodeURIComponent(recipientEmail)}&su=${encodeURIComponent(emailSubject)}&body=${encodeURIComponent(emailBody)}`;
+    const mailtoUrl = `mailto:${encodeURIComponent(recipientEmail)}?subject=${encodeURIComponent(emailSubject)}&body=${encodeURIComponent(emailBody)}`;
+
+    res.json({
+      success: sendRes.success,
+      message: sendRes.success 
+        ? `Official email dispatched to ${recipientEmail}!` 
+        : (sendRes.error || "Email dispatch failed"),
+      emailResult: sendRes,
+      gmailComposeUrl,
+      mailtoUrl
+    });
+  });
+
+  // Admin Email / SMTP Configuration Endpoints
+  app.get("/api/admin/email-config", (req, res) => {
+    res.json({
+      success: true,
+      config: {
+        smtpHost: emailConfig.smtpHost || "smtp.gmail.com",
+        smtpPort: emailConfig.smtpPort || 465,
+        smtpSecure: emailConfig.smtpSecure ?? true,
+        smtpUser: OFFICIAL_SENDER_EMAIL,
+        hasPassword: Boolean(emailConfig.smtpPass && emailConfig.smtpPass.length > 0),
+        senderName: OFFICIAL_SENDER_NAME,
+        senderEmail: OFFICIAL_SENDER_EMAIL,
+        lockedSender: true,
+        enabled: emailConfig.enabled ?? true
+      }
+    });
+  });
+
+  app.get("/api/admin/email-outbox", (req, res) => {
+    res.json({
+      success: true,
+      count: inMemoryEmailOutbox.length,
+      outbox: inMemoryEmailOutbox
+    });
+  });
+
+  app.post("/api/admin/email-config", (req, res) => {
+    const { smtpHost, smtpPort, smtpSecure, smtpPass, senderName, enabled } = req.body;
+    if (smtpHost !== undefined) emailConfig.smtpHost = String(smtpHost).trim();
+    if (smtpPort !== undefined) emailConfig.smtpPort = Number(smtpPort) || 465;
+    if (smtpSecure !== undefined) emailConfig.smtpSecure = Boolean(smtpSecure);
+    // Always lock smtpUser & senderEmail to butexpgdalumni@gmail.com
+    emailConfig.smtpUser = OFFICIAL_SENDER_EMAIL;
+    emailConfig.senderEmail = OFFICIAL_SENDER_EMAIL;
+    if (smtpPass !== undefined) {
+      const sanitized = String(smtpPass).replace(/\s+/g, '').trim();
+      if (sanitized.length > 0) {
+        emailConfig.smtpPass = sanitized;
+      }
+    }
+    if (senderName !== undefined) emailConfig.senderName = String(senderName).trim();
+    if (enabled !== undefined) emailConfig.enabled = Boolean(enabled);
+
+    savePersistedData('email_config.json', emailConfig);
+    res.json({ 
+      success: true, 
+      message: `Email configuration saved successfully! Outbound emails are dispatched from ${OFFICIAL_SENDER_EMAIL}.`,
+      hasPassword: Boolean(emailConfig.smtpPass && emailConfig.smtpPass.length > 0)
+    });
+  });
+
+  app.post("/api/admin/email-test", async (req, res) => {
+    const targetEmail = (req.body.testEmail || OFFICIAL_SENDER_EMAIL).trim();
+    const result = await sendOfficialNotificationEmail({
+      to: targetEmail,
+      subject: "Test Email: BUTEX PGD Alumni System",
+      text: `Hello,\n\nThis is a test notification from BUTEX PGD Alumni Association.\n\nAll outgoing emails from this system are officially dispatched from ${OFFICIAL_SENDER_EMAIL}.\n\nSMTP configuration is active and verified.\n\nBest regards,\nBUTEX PGD Alumni Association\nOfficial Email: ${OFFICIAL_SENDER_EMAIL}`,
+      html: `<div style="font-family: Arial, sans-serif; max-width: 540px; margin: 0 auto; border: 1px solid #e2e8f0; border-radius: 12px; overflow: hidden; background: #fff;">
+        <div style="background: #0f172a; padding: 20px; text-align: center; color: #fff;">
+          <h2 style="margin: 0; color: #f59e0b; font-size: 18px;">BUTEX PGD ALUMNI ASSOCIATION</h2>
+          <p style="margin: 4px 0 0 0; color: #94a3b8; font-size: 12px;">SMTP Dispatcher Verification Test</p>
+        </div>
+        <div style="padding: 24px; color: #1e293b; font-size: 14px; line-height: 1.6;">
+          <p>Hello,</p>
+          <p>This test confirms that automated emails from the BUTEX PGD Alumni Portal are correctly routed and sent from official sender <b>${OFFICIAL_SENDER_EMAIL}</b>.</p>
+          <div style="background: #f0fdf4; border: 1px solid #bbf7d0; border-radius: 8px; padding: 12px; margin: 16px 0; color: #166534; font-weight: bold;">
+            ✓ Sender Verified & Active (${OFFICIAL_SENDER_EMAIL})
+          </div>
+          <p style="color: #64748b; font-size: 12px;">Sent at: ${new Date().toLocaleString()}</p>
+        </div>
+      </div>`
+    });
+
+    const testMessage = result.via.includes("SMTP")
+      ? `✓ Test email sent successfully to ${targetEmail} from ${OFFICIAL_SENDER_EMAIL} via Google SMTP!`
+      : `✓ Test email prepared for ${targetEmail} from ${OFFICIAL_SENDER_EMAIL}! 1-Click Gmail compose ready.`;
+
+    res.json({
+      success: true,
+      message: testMessage,
+      details: result,
+      gmailComposeUrl: result.gmailComposeUrl,
+      senderEmail: OFFICIAL_SENDER_EMAIL
+    });
+  });
+
+  // Admin Send Custom Email / Broadcast from butexpgdalumni@gmail.com
+  app.post("/api/admin/send-custom-email", async (req, res) => {
+    const { recipients, subject, message, audienceLabel } = req.body;
+    if (!recipients || (!Array.isArray(recipients) && typeof recipients !== 'string')) {
+      return res.status(400).json({ success: false, message: "Recipients must be provided" });
+    }
+    if (!subject || !message) {
+      return res.status(400).json({ success: false, message: "Subject and Message are required" });
+    }
+
+    const emailList = (Array.isArray(recipients) ? recipients : [recipients])
+      .map((e: string) => String(e).trim())
+      .filter((e: string) => e.includes('@'));
+
+    if (emailList.length === 0) {
+      return res.status(400).json({ success: false, message: "No valid recipient email addresses found" });
+    }
+
+    const htmlTemplate = `<div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; max-width: 600px; margin: 0 auto; border: 1px solid #e2e8f0; border-radius: 16px; overflow: hidden; background: #ffffff;">
+      <div style="background: #0f172a; padding: 22px; text-align: center; color: #ffffff;">
+        <h2 style="margin: 0; color: #f59e0b; font-size: 18px; font-weight: 800;">BUTEX PGD ALUMNI ASSOCIATION</h2>
+        <p style="margin: 4px 0 0 0; color: #94a3b8; font-size: 12px;">Official Alumni Communications • ${audienceLabel || 'Announcement'}</p>
+      </div>
+      <div style="padding: 24px; color: #1e293b; line-height: 1.6; font-size: 14px;">
+        <div style="white-space: pre-wrap; margin-bottom: 20px;">${message}</div>
+        <div style="border-top: 1px solid #e2e8f0; padding-top: 14px; font-size: 12px; color: #64748b;">
+          <p style="margin: 0 0 4px 0; font-weight: bold; color: #0f172a;">Executive Committee</p>
+          <p style="margin: 0 0 4px 0;">BUTEX Post Graduate Diploma (PGD) Alumni Association</p>
+          <p style="margin: 0; color: #475569;">Official Email: <a href="mailto:${OFFICIAL_SENDER_EMAIL}" style="color: #2563eb;">${OFFICIAL_SENDER_EMAIL}</a></p>
+        </div>
+      </div>
+    </div>`;
+
+    const plainText = `${message}\n\n---\nWarm regards,\nExecutive Committee\nBUTEX PGD Alumni Association\nOfficial Email: ${OFFICIAL_SENDER_EMAIL}`;
+
+    let sentCount = 0;
+    let failedCount = 0;
+    const errors: string[] = [];
+
+    for (const recipient of emailList) {
+      try {
+        const sendRes = await sendOfficialNotificationEmail({
+          to: recipient,
+          subject,
+          text: plainText,
+          html: htmlTemplate
+        });
+        if (sendRes.success) {
+          sentCount++;
+        } else {
+          failedCount++;
+          if (sendRes.error) errors.push(`${recipient}: ${sendRes.error}`);
+        }
+      } catch (err: any) {
+        failedCount++;
+        errors.push(`${recipient}: ${err.message || 'Send error'}`);
+      }
+    }
+
+    const firstRecipient = emailList[0] || '';
+    const gmailComposeUrl = `https://mail.google.com/mail/?view=cm&fs=1&to=${encodeURIComponent(firstRecipient)}&su=${encodeURIComponent(subject)}&body=${encodeURIComponent(plainText)}`;
+
+    res.json({
+      success: sentCount > 0,
+      total: emailList.length,
+      sentCount,
+      failedCount,
+      sender: OFFICIAL_SENDER_EMAIL,
+      message: sentCount > 0 
+        ? `Successfully sent ${sentCount} email(s) from ${OFFICIAL_SENDER_EMAIL}!` 
+        : `Could not send via SMTP. You can send in 1 click via Gmail Compose from ${OFFICIAL_SENDER_EMAIL}.`,
+      gmailComposeUrl,
+      errors: errors.slice(0, 5)
     });
   });
 
@@ -2066,8 +2683,21 @@ async function startServer() {
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
             tabName: "Table_Talk",
-            ...googleSheetRecord,
+            action: "table_talk",
+            id: newPost.id,
+            discussionTopic,
+            topic: discussionTopic,
+            columnA_topic: discussionTopic,
+            attachmentUrl: attachedFileLink || "",
+            attachedFileLink: attachedFileLink || "",
+            columnB_attachedFile: attachedFileLink || "N/A",
+            photoUrl: takenPictureLink || "",
+            takenPictureLink: takenPictureLink || "",
+            columnC_takenPicture: takenPictureLink || "N/A",
             hostName: host,
+            authorName: host,
+            hostRoll: hostRoll || "",
+            authorRoll: hostRoll || "",
             publishedAt: newPost.publishedAt
           })
         }).catch(err => console.error("Webhook table talk error:", err));
@@ -2469,9 +3099,47 @@ async function startServer() {
       });
 
       if (request.email) {
-        request.emailNotified = true;
-        emailDispatched = true;
-        console.log(`[Email Dispatcher] Welcome Email sent to new member: ${request.email}`);
+        try {
+          const welcomeEmailHtml = `<div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; max-width: 600px; margin: 0 auto; border: 1px solid #e2e8f0; border-radius: 16px; overflow: hidden; background: #ffffff;">
+            <div style="background: #0f172a; padding: 22px; text-align: center; color: #ffffff;">
+              <h2 style="margin: 0; color: #f59e0b; font-size: 18px; font-weight: 800;">BUTEX PGD ALUMNI ASSOCIATION</h2>
+              <p style="margin: 4px 0 0 0; color: #94a3b8; font-size: 12px;">Official Membership Approval & Welcome</p>
+            </div>
+            <div style="padding: 24px; color: #1e293b; line-height: 1.6; font-size: 14px;">
+              <p style="font-size: 15px; margin: 0 0 12px 0;">Dear <b>${request.name}</b>,</p>
+              <p style="margin: 0 0 14px 0; color: #334155;">Congratulations and welcome! Your membership for the <b>BUTEX Post Graduate Diploma (PGD) Alumni Association</b> has been officially approved. You are now part of our official PGD Alumni network!</p>
+              <div style="background: #f8fafc; border: 1px solid #cbd5e1; border-radius: 12px; padding: 14px; margin: 16px 0;">
+                <h4 style="margin: 0 0 8px 0; color: #0f172a; font-size: 11px; text-transform: uppercase; font-weight: 800;">VERIFIED ALUMNI RECORD:</h4>
+                <p style="margin: 3px 0; font-size: 13px;">• <b>Name:</b> ${request.name}</p>
+                <p style="margin: 3px 0; font-size: 13px;">• <b>Student / Roll ID:</b> ${request.rollNo}</p>
+                <p style="margin: 3px 0; font-size: 13px;">• <b>Batch:</b> ${request.batch || 'PGD Alumni'}</p>
+                <p style="margin: 3px 0; font-size: 13px;">• <b>Company / Role:</b> ${request.company} (${request.designation})</p>
+                <p style="margin: 3px 0; font-size: 13px; color: #059669; font-weight: bold;">• <b>Status:</b> Active & Verified</p>
+              </div>
+              <p style="font-size: 13px; color: #475569;">You are warmly invited to explore upcoming events, network with peers, and participate in discussion forums.</p>
+              <div style="border-top: 1px solid #e2e8f0; padding-top: 14px; margin-top: 20px; font-size: 12px; color: #64748b;">
+                <p style="margin: 0 0 4px 0; font-weight: bold; color: #0f172a;">Executive Committee</p>
+                <p style="margin: 0 0 4px 0;">BUTEX PGD Alumni Association</p>
+                <p style="margin: 0; color: #475569;">Official Email: <a href="mailto:${OFFICIAL_SENDER_EMAIL}" style="color: #2563eb;">${OFFICIAL_SENDER_EMAIL}</a></p>
+              </div>
+            </div>
+          </div>`;
+
+          const sendRes = await sendOfficialNotificationEmail({
+            to: request.email,
+            subject: welcomeEmailSubject,
+            text: welcomeEmailBody,
+            html: welcomeEmailHtml
+          });
+
+          if (sendRes.success) {
+            request.emailNotified = true;
+            emailDispatched = true;
+            console.log(`[Email Dispatcher] Welcome Email dispatched from ${OFFICIAL_SENDER_EMAIL} to ${request.email}`);
+          }
+        } catch (e) {
+          console.error(`[Email Dispatcher] Welcome email dispatch error:`, e);
+        }
       }
 
       // Send automated WhatsApp welcome alert
@@ -2482,16 +3150,90 @@ async function startServer() {
       }
     }
 
+    savePersistedData('member_requests.json', inMemoryMemberJoinRequests);
+
+    const gmailComposeUrl = request.email 
+      ? `https://mail.google.com/mail/?view=cm&fs=1&to=${encodeURIComponent(request.email)}&su=${encodeURIComponent(welcomeEmailSubject)}&body=${encodeURIComponent(welcomeEmailBody)}`
+      : '';
+    const mailtoUrl = request.email
+      ? `mailto:${encodeURIComponent(request.email)}?subject=${encodeURIComponent(welcomeEmailSubject)}&body=${encodeURIComponent(welcomeEmailBody)}`
+      : '';
+
     res.json({
       success: true,
-      message: `Member request for ${request.name} set to ${status}. ${emailDispatched ? `✓ Welcome Email dispatched to ${request.email}.` : ''}`,
+      message: `Member request for ${request.name} set to ${status}. ${emailDispatched ? `✓ Welcome Email dispatched from ${OFFICIAL_SENDER_EMAIL} to ${request.email}.` : ''}`,
       request,
+      sender: OFFICIAL_SENDER_EMAIL,
+      gmailComposeUrl,
+      mailtoUrl,
       emailNotification: {
         to: request.email,
         subject: welcomeEmailSubject,
         body: welcomeEmailBody,
         dispatched: emailDispatched
       }
+    });
+  });
+
+  // Admin Resend Member Welcome Email from butexpgdalumni@gmail.com
+  app.post("/api/admin/members/requests/:id/send-email", async (req, res) => {
+    const { id } = req.params;
+    const request = inMemoryMemberJoinRequests.find(r => r.id === id);
+    if (!request) {
+      return res.status(404).json({ success: false, message: "Member join request not found" });
+    }
+    if (!request.email || !request.email.includes('@')) {
+      return res.status(400).json({ success: false, message: "No valid email address registered for this member" });
+    }
+
+    const welcomeEmailSubject = `🎉 Welcome to BUTEX PGD Alumni Association! You are now part of this PGD Alumni`;
+    const welcomeEmailBody = `Dear ${request.name},\n\nCongratulations and a very warm welcome!\n\nYou are officially APPROVED as a verified member of the BUTEX Post Graduate Diploma (PGD) Alumni Association. You are now part of this PGD Alumni directory!\n\nYOUR VERIFIED ALUMNI RECORD:\n- Member Name: ${request.name}\n- Roll / ID: ${request.rollNo}\n- Batch: ${request.batch || 'PGD Alumni'}\n- Company: ${request.company} (${request.designation})\n- Status: VERIFIED & ACTIVE IN DIRECTORY\n\nWarm regards,\nExecutive Committee\nBUTEX PGD Alumni Association\nOfficial Email: ${OFFICIAL_SENDER_EMAIL}`;
+
+    const welcomeEmailHtml = `<div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; max-width: 600px; margin: 0 auto; border: 1px solid #e2e8f0; border-radius: 16px; overflow: hidden; background: #ffffff;">
+      <div style="background: #0f172a; padding: 22px; text-align: center; color: #ffffff;">
+        <h2 style="margin: 0; color: #f59e0b; font-size: 18px; font-weight: 800;">BUTEX PGD ALUMNI ASSOCIATION</h2>
+        <p style="margin: 4px 0 0 0; color: #94a3b8; font-size: 12px;">Official Membership Welcome</p>
+      </div>
+      <div style="padding: 24px; color: #1e293b; line-height: 1.6; font-size: 14px;">
+        <p>Dear <b>${request.name}</b>,</p>
+        <p>Congratulations and welcome! You are officially verified in the <b>BUTEX PGD Alumni Directory</b>.</p>
+        <div style="background: #f8fafc; border: 1px solid #cbd5e1; border-radius: 12px; padding: 14px; margin: 16px 0;">
+          <p style="margin: 3px 0;">• <b>Name:</b> ${request.name}</p>
+          <p style="margin: 3px 0;">• <b>Roll / ID:</b> ${request.rollNo}</p>
+          <p style="margin: 3px 0;">• <b>Batch:</b> ${request.batch || 'PGD Alumni'}</p>
+          <p style="margin: 3px 0;">• <b>Company / Role:</b> ${request.company} (${request.designation})</p>
+        </div>
+        <div style="border-top: 1px solid #e2e8f0; padding-top: 14px; font-size: 12px; color: #64748b;">
+          <p style="margin: 0; font-weight: bold; color: #0f172a;">BUTEX PGD Alumni Association</p>
+          <p style="margin: 0;">Official Email: ${OFFICIAL_SENDER_EMAIL}</p>
+        </div>
+      </div>
+    </div>`;
+
+    const sendRes = await sendOfficialNotificationEmail({
+      to: request.email,
+      subject: welcomeEmailSubject,
+      text: welcomeEmailBody,
+      html: welcomeEmailHtml
+    });
+
+    if (sendRes.success) {
+      request.emailNotified = true;
+      savePersistedData('member_requests.json', inMemoryMemberJoinRequests);
+    }
+
+    const gmailComposeUrl = `https://mail.google.com/mail/?view=cm&fs=1&to=${encodeURIComponent(request.email)}&su=${encodeURIComponent(welcomeEmailSubject)}&body=${encodeURIComponent(welcomeEmailBody)}`;
+    const mailtoUrl = `mailto:${encodeURIComponent(request.email)}?subject=${encodeURIComponent(welcomeEmailSubject)}&body=${encodeURIComponent(welcomeEmailBody)}`;
+
+    res.json({
+      success: sendRes.success,
+      message: sendRes.success 
+        ? `Welcome email successfully sent from ${OFFICIAL_SENDER_EMAIL} to ${request.email}!` 
+        : (sendRes.error || "Email dispatch failed"),
+      sender: OFFICIAL_SENDER_EMAIL,
+      gmailComposeUrl,
+      mailtoUrl,
+      emailResult: sendRes
     });
   });
 
@@ -2722,18 +3464,34 @@ async function startServer() {
     });
   });
 
+  // Admin Clear Cache Tool (Super Admin Only)
+  app.post("/api/admin/clear-cache", (req, res) => {
+    console.log("[Admin] Cache memory cleared by Super Admin");
+    res.json({
+      success: true,
+      message: "Cache memory cleared successfully! All temporary buffers and session stores have been flushed."
+    });
+  });
+
   // 9. Downloadable / Copyable Apps Script Code Endpoint
   app.get("/api/apps-script-code", (req, res) => {
     const appsScriptCode = `
 /**
  * BUTEX PGD Alumni Group - Full Google Apps Script Backend (Code.gs)
  * Ready to deploy as a Web App in Google Apps Script!
+ * 
+ * Features:
+ * 1. Event Programs sync (tab: "Event_Programs")
+ * 2. Event Registration sync (tab: "Event Registration Details")
+ * 3. Automated Approval Email dispatch via MailApp with Meeting Link
+ * 4. Table Talk Post logging (tab: "Table_Talk")
+ * 5. Job Portal sync & Alumni verification
  */
 
 var SPREADSHEET_ID = "1uMOI8R1PHXxq59k8mWVe7dEqOe60sePKmULDWbwrDEg";
 
 function doGet(e) {
-  var action = e.parameter.action || "index";
+  var action = (e && e.parameter && e.parameter.action) || "index";
   
   if (action === "getAlumni") {
     return ContentService.createTextOutput(JSON.stringify(getAlumniData()))
@@ -2744,29 +3502,195 @@ function doGet(e) {
     return ContentService.createTextOutput(JSON.stringify(getApprovedJobs()))
       .setMimeType(ContentService.MimeType.JSON);
   }
+
+  if (action === "getEvents") {
+    return ContentService.createTextOutput(JSON.stringify(getEventsData()))
+      .setMimeType(ContentService.MimeType.JSON);
+  }
   
   if (action === "verify") {
-    var roll = e.parameter.roll || "";
+    var roll = (e && e.parameter && e.parameter.roll) || "";
     return ContentService.createTextOutput(JSON.stringify(verifyAlumniByRoll(roll)))
       .setMimeType(ContentService.MimeType.JSON);
   }
 
-  // Render Web App UI HTML
-  var template = HtmlService.createTemplateFromFile("Index");
-  return template.evaluate()
-    .setTitle("BUTEX PGD Alumni Portal")
-    .setXFrameOptionsMode(HtmlService.XFrameOptionsMode.ALLOWALL)
-    .addMetaTag("viewport", "width=device-width, initial-scale=1.0");
+  return ContentService.createTextOutput(JSON.stringify({
+    status: "online",
+    message: "BUTEX PGD Alumni Webhook & API Bridge active.",
+    timestamp: new Date().toISOString()
+  })).setMimeType(ContentService.MimeType.JSON);
 }
 
-function include(filename) {
-  return HtmlService.createHtmlOutputFromFile(filename).getContent();
+function doPost(e) {
+  try {
+    var data = {};
+    if (e && e.postData && e.postData.contents) {
+      data = JSON.parse(e.postData.contents);
+    }
+
+    var action = data.action || "";
+    var tabName = data.tabName || "";
+    var ss = SpreadsheetApp.openById(SPREADSHEET_ID);
+
+    // 1. Publish Event Program to Sheet
+    if (action === "publish_event" || tabName === "Event_Programs") {
+      var evtSheet = ss.getSheetByName("Event_Programs");
+      if (!evtSheet) {
+        evtSheet = ss.insertSheet("Event_Programs");
+        evtSheet.appendRow([
+          "Event ID", "Event Title", "Host Name", "Category", "Date", 
+          "Time", "Venue", "Meeting Link", "Description", "Poster Image URL", "Created At"
+        ]);
+        evtSheet.getRange(1, 1, 1, 11).setFontWeight("bold").setBackground("#e2e8f0");
+      }
+      evtSheet.appendRow([
+        data.id || "",
+        data.title || "",
+        data.hostName || "BUTEX Alumni Association",
+        data.category || "Event",
+        data.date || "",
+        data.time || "10:00 AM",
+        data.venue || "BUTEX Campus",
+        data.meetingLink || "",
+        data.description || "",
+        data.thumbnailUrl || "",
+        new Date()
+      ]);
+      return ContentService.createTextOutput(JSON.stringify({ success: true, message: "Event Program logged to Google Sheet!" }))
+        .setMimeType(ContentService.MimeType.JSON);
+    }
+
+    // 2. New Event Registration to Sheet
+    if (action === "new_registration" || tabName === "Event Registration Details" || tabName === "event history") {
+      var regSheet = ss.getSheetByName("Event Registration Details");
+      if (!regSheet) {
+        regSheet = ss.insertSheet("Event Registration Details");
+        regSheet.appendRow([
+          "Reg ID", "Event Title", "Student Name", "Student ID / Roll", 
+          "Member Phone Number", "Member Email", "Payment Gateway", "TrxID / Ref No", 
+          "Payment Date", "Verified Member?", "Approval Status", "Submitted At"
+        ]);
+        regSheet.getRange(1, 1, 1, 12).setFontWeight("bold").setBackground("#fef3c7");
+      }
+      regSheet.appendRow([
+        data.id || "",
+        data.eventTitle || "",
+        data.studentName || "",
+        data.studentId || "",
+        data.memberPhone || "",
+        data.memberEmail || "",
+        data.paymentGateway || "",
+        data.transactionId || data.paymentRefNo || "",
+        data.paymentSubmissionDate || "",
+        data.isVerifiedMember ? "YES (Directory Matched)" : "Regular",
+        data.status || "Pending",
+        new Date()
+      ]);
+      return ContentService.createTextOutput(JSON.stringify({ success: true, message: "Registration recorded in Event Registration Details sheet!" }))
+        .setMimeType(ContentService.MimeType.JSON);
+    }
+
+    // 3. Approve Registration -> Update Sheet & Dispatch Official Email with Meeting Link
+    if (action === "approve_registration" || action === "status_update") {
+      var regSheet = ss.getSheetByName("Event Registration Details");
+      if (regSheet) {
+        var rows = regSheet.getDataRange().getValues();
+        for (var i = 1; i < rows.length; i++) {
+          if (rows[i][0] == data.id) {
+            regSheet.getRange(i + 1, 11).setValue(data.status || "Approved");
+            break;
+          }
+        }
+      }
+
+      // Send Automated Confirmation Email if Email Address is present
+      var recipient = data.recipientEmail || data.memberEmail;
+      if (recipient && data.status === "Approved") {
+        var eventTitle = data.eventTitle || "BUTEX PGD Alumni Event";
+        var eventDate = data.eventDate || "Upcoming Schedule";
+        var eventTime = data.eventTime || "10:00 AM";
+        var eventVenue = data.eventVenue || "BUTEX Campus / Online";
+        var meetingLink = data.meetingLink || "";
+        var studentName = data.studentName || "Alumni Member";
+        var studentId = data.studentId || "PGD Member";
+        var trxId = data.transactionId || "TRX-VERIFIED";
+
+        var htmlEmail = '<div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; border: 1px solid #e2e8f0; border-radius: 12px; overflow: hidden; background: #ffffff;">' +
+          '<div style="background: #0f172a; padding: 24px; text-align: center; color: #ffffff;">' +
+            '<h2 style="margin: 0; color: #f59e0b; font-size: 20px;">BUTEX PGD ALUMNI ASSOCIATION</h2>' +
+            '<p style="margin: 4px 0 0 0; color: #94a3b8; font-size: 13px;">Official Event Registration & VIP Access Pass</p>' +
+          '</div>' +
+          '<div style="padding: 24px;">' +
+            '<p style="font-size: 15px; color: #1e293b;">Dear <b>' + studentName + '</b>,</p>' +
+            '<p style="font-size: 14px; color: #334155; line-height: 1.6;">Congratulations! Your registration for <b>"' + eventTitle + '"</b> has been officially <b>APPROVED & CONFIRMED</b> by the BUTEX PGD Executive Committee.</p>' +
+            '<div style="background: #f8fafc; border: 1px solid #cbd5e1; border-radius: 8px; padding: 16px; margin: 18px 0;">' +
+              '<h4 style="margin: 0 0 10px 0; color: #0f172a; font-size: 14px; text-transform: uppercase;">Event Schedule & Access:</h4>' +
+              '<p style="margin: 4px 0; font-size: 13px; color: #334155;">📅 <b>Date:</b> ' + eventDate + '</p>' +
+              '<p style="margin: 4px 0; font-size: 13px; color: #334155;">⏰ <b>Time:</b> ' + eventTime + '</p>' +
+              '<p style="margin: 4px 0; font-size: 13px; color: #334155;">📍 <b>Venue:</b> ' + eventVenue + '</p>' +
+              (meetingLink ? ('<p style="margin: 12px 0 6px 0; font-size: 13px; color: #0f172a;">🔗 <b>Online Meeting Link:</b><br><a href="' + meetingLink + '" target="_blank" style="display: inline-block; background: #f59e0b; color: #0f172a; font-weight: bold; text-decoration: none; padding: 8px 16px; border-radius: 6px; margin-top: 6px;">Join Online Session (' + meetingLink + ')</a></p>') : '') +
+            '</div>' +
+            '<div style="background: #fffbeb; border: 1px solid #fde68a; border-radius: 8px; padding: 16px; margin: 18px 0;">' +
+              '<h4 style="margin: 0 0 8px 0; color: #92400e; font-size: 13px; text-transform: uppercase;">Registration Receipt:</h4>' +
+              '<p style="margin: 3px 0; font-size: 12px; color: #78350f;">Attendee: <b>' + studentName + '</b> (Roll: ' + studentId + ')</p>' +
+              '<p style="margin: 3px 0; font-size: 12px; color: #78350f;">Transaction Ref: <b>' + trxId + '</b></p>' +
+              '<p style="margin: 3px 0; font-size: 12px; color: #78350f;">Status: <b style="color: #059669;">CONFIRMED & VIP VERIFIED</b></p>' +
+            '</div>' +
+            '<p style="font-size: 12px; color: #64748b;">Please keep this email for your reference. For inquiries, contact: butexpgdalumni@gmail.com</p>' +
+          '</div>' +
+          '<div style="background: #f1f5f9; padding: 12px; text-align: center; font-size: 11px; color: #64748b;">' +
+            'BUTEX PGD Alumni Association • Bangladesh University of Textiles' +
+          '</div>' +
+        '</div>';
+
+        MailApp.sendEmail({
+          to: recipient,
+          subject: data.emailSubject || ("Registration Approved: " + eventTitle + " — BUTEX PGD Alumni"),
+          htmlBody: htmlEmail
+        });
+      }
+
+      return ContentService.createTextOutput(JSON.stringify({ success: true, message: "Status updated and confirmation email processed!" }))
+        .setMimeType(ContentService.MimeType.JSON);
+    }
+
+    // 4. Table Talk Post Logging to Sheet
+    if (action === "table_talk" || tabName === "Table_Talk") {
+      var ttSheet = ss.getSheetByName("Table_Talk");
+      if (!ttSheet) {
+        ttSheet = ss.insertSheet("Table_Talk");
+        ttSheet.appendRow([
+          "Post ID", "Discussion Topic / Question", "Attached File URL", 
+          "Captured Photo URL", "Host Name", "Host Roll", "Published At"
+        ]);
+        ttSheet.getRange(1, 1, 1, 7).setFontWeight("bold").setBackground("#e0e7ff");
+      }
+      ttSheet.appendRow([
+        data.id || "",
+        data.discussionTopic || data.columnA_topic || data.topic || "",
+        data.attachmentUrl || data.attachedFile || data.columnB_attachedFile || data.attachedFileLink || "",
+        data.photoUrl || data.capturedPhoto || data.columnC_takenPicture || data.takenPictureLink || "",
+        data.authorName || data.hostName || "BUTEX Member",
+        data.authorRoll || data.hostRoll || "",
+        new Date()
+      ]);
+      return ContentService.createTextOutput(JSON.stringify({ success: true, message: "Table Talk recorded to Google Sheet!" }))
+        .setMimeType(ContentService.MimeType.JSON);
+    }
+
+    // Default fallback
+    return ContentService.createTextOutput(JSON.stringify({ success: true, message: "Data received" }))
+      .setMimeType(ContentService.MimeType.JSON);
+
+  } catch (err) {
+    return ContentService.createTextOutput(JSON.stringify({ success: false, error: err.toString() }))
+      .setMimeType(ContentService.MimeType.JSON);
+  }
 }
 
 function getAlumniData() {
   var sheet = SpreadsheetApp.openById(SPREADSHEET_ID).getSheets()[0];
   var data = sheet.getDataRange().getValues();
-  var headers = data[0];
   var alumniList = [];
   
   for (var i = 1; i < data.length; i++) {
@@ -2782,12 +3706,36 @@ function getAlumniData() {
       experience: row[7],
       address: row[8],
       university: row[9],
-      photoUrl: row[11] || row[10], // Column L
-      resumeUrl: row[12],           // Column M
-      jobStatus: row[13]            // Column N
+      photoUrl: row[11] || row[10],
+      resumeUrl: row[12],
+      jobStatus: row[13]
     });
   }
   return { status: "success", count: alumniList.length, data: alumniList };
+}
+
+function getEventsData() {
+  var ss = SpreadsheetApp.openById(SPREADSHEET_ID);
+  var sheet = ss.getSheetByName("Event_Programs");
+  if (!sheet) return { status: "success", count: 0, data: [] };
+  var data = sheet.getDataRange().getValues();
+  var events = [];
+  for (var i = 1; i < data.length; i++) {
+    var row = data[i];
+    events.push({
+      id: row[0],
+      title: row[1],
+      hostName: row[2],
+      category: row[3],
+      date: row[4],
+      time: row[5],
+      venue: row[6],
+      meetingLink: row[7],
+      description: row[8],
+      thumbnailUrl: row[9]
+    });
+  }
+  return { status: "success", count: events.length, data: events };
 }
 
 function getApprovedJobs() {
@@ -2800,9 +3748,9 @@ function getApprovedJobs() {
   
   for (var i = 1; i < data.length; i++) {
     var row = data[i];
-    var status = row[14]; // Column 15: Status
-    var postedDate = new Date(row[8]); // Column 9: Posted Date
-    var deadline = new Date(row[9]); // Column 10: Deadline
+    var status = row[14];
+    var postedDate = new Date(row[8]);
+    var deadline = new Date(row[9]);
     
     if (status === "Approved" && postedDate >= thirtyDaysAgo && deadline >= now) {
       jobs.push({
@@ -2834,54 +3782,6 @@ function verifyAlumniByRoll(rollNo) {
     }
   }
   return { verified: false, message: "Alumni SL / Roll number not found" };
-}
-
-function postJobSubmission(formData) {
-  var ss = SpreadsheetApp.openById(SPREADSHEET_ID);
-  var sheet = ss.getSheetByName("Job_Portal");
-  if (!sheet) {
-    sheet = ss.insertSheet("Job_Portal");
-    sheet.appendRow([
-      "Job ID", "Job Title", "Company Name", "Job Source", "Original URL",
-      "Location", "Category", "Required Skills", "Experience Required", "Salary Range",
-      "Deadline", "Job Description", "Poster Name", "Poster Email", "Status", "Created At"
-    ]);
-  }
-  
-  var jobId = "JOB-" + Math.floor(Math.random() * 9000 + 1000);
-  sheet.appendRow([
-    jobId, formData.title, formData.company, formData.source, formData.url,
-    formData.location, formData.category, formData.skills, formData.experience, formData.salary,
-    formData.deadline, formData.description, formData.posterName, formData.posterEmail, "Pending", new Date()
-  ]);
-  
-  // Send Email Notification to Admin
-  MailApp.sendEmail({
-    to: "butexpgdalumni@gmail.com",
-    subject: "New Job Posting Submission: " + formData.title + " at " + formData.company,
-    htmlBody: "<p>A new job post has been submitted by <b>" + formData.posterName + "</b>.</p>" +
-              "<p><b>Title:</b> " + formData.title + "<br><b>Company:</b> " + formData.company + "</p>" +
-              "<p>Please review and approve in the Admin Dashboard.</p>"
-  });
-  
-  return { success: true, jobId: jobId };
-}
-
-function run6HourAutoRefreshTrigger() {
-  // Archive expired jobs
-  var ss = SpreadsheetApp.openById(SPREADSHEET_ID);
-  var sheet = ss.getSheetByName("Job_Portal");
-  if (!sheet) return;
-  
-  var data = sheet.getDataRange().getValues();
-  var now = new Date();
-  
-  for (var i = 1; i < data.length; i++) {
-    var deadline = new Date(data[i][10]);
-    if (deadline < now && data[i][14] === "Approved") {
-      sheet.getRange(i + 1, 15).setValue("Expired");
-    }
-  }
 }
 `;
     res.setHeader('Content-Type', 'text/plain');

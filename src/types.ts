@@ -80,6 +80,7 @@ export interface EventItem {
   registeredCount?: number;
   maxSeats?: number;
   status: 'Upcoming' | 'Completed' | string;
+  meetingLink?: string;
   createdAt?: string;
 }
 
@@ -103,6 +104,8 @@ export interface EventRegistration {
   isVerifiedMember?: boolean;
   matchedAlumniName?: string;
   emailNotified?: boolean;
+  googleFormSynced?: boolean;
+  meetingLink?: string;
 }
 
 export interface MemberJoinRequest {
