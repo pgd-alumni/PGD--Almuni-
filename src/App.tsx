@@ -425,6 +425,16 @@ export default function App() {
                 <EventsModule
                   events={events}
                   onRegisterEvent={(evt) => setRegisteringEvent(evt)}
+                  onDeleteEvent={async (id, title) => {
+                    try {
+                      await fetch(`/api/admin/events/${encodeURIComponent(id)}?title=${encodeURIComponent(title)}`, {
+                        method: 'DELETE'
+                      });
+                      loadData();
+                    } catch (e) {
+                      console.error(e);
+                    }
+                  }}
                 />
               )}
 

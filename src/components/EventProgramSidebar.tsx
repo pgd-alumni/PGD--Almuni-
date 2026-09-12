@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { Calendar, Clock, MapPin, Sparkles, ChevronLeft, ChevronRight, FileText, UserCheck, Star, Lock, Unlock, MessageSquare, Send, Maximize2, X } from 'lucide-react';
-import { EventItem, EventReview } from '../types';
+import { EventItem, EventReview, formatGoogleDriveUrl, isEventOneDayOver } from '../types';
 import { ClassReviewSection } from './ClassReviewSection';
 
 interface EventProgramSidebarProps {
@@ -160,15 +160,18 @@ export const EventProgramSidebar: React.FC<EventProgramSidebarProps> = ({
             {/* Visual Class Thumbnail Poster - 5:7 Aspect Ratio */}
             {activeEvent.thumbnailUrl && (
               <div 
-                onClick={() => setFullscreenPoster(activeEvent.thumbnailUrl || null)}
+                onClick={() => setFullscreenPoster(formatGoogleDriveUrl(activeEvent.thumbnailUrl) || activeEvent.thumbnailUrl || null)}
                 className="w-full aspect-[5/7] rounded-xl overflow-hidden relative group border border-slate-800 bg-slate-900 shadow-md shrink-0 cursor-pointer"
                 title="Click to expand full screen poster preview"
               >
                 <img
-                  src={activeEvent.thumbnailUrl}
+                  src={formatGoogleDriveUrl(activeEvent.thumbnailUrl) || activeEvent.thumbnailUrl}
                   alt={activeEvent.title}
                   className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500"
                   referrerPolicy="no-referrer"
+                  onError={(e) => {
+                    (e.currentTarget as HTMLImageElement).src = "https://images.unsplash.com/photo-1511578314322-379afb476865?auto=format&fit=crop&w=800&q=80";
+                  }}
                 />
                 
                 {/* Full-Screen Hover Badge Overlay */}
@@ -263,10 +266,13 @@ export const EventProgramSidebar: React.FC<EventProgramSidebarProps> = ({
             </div>
             <div className="overflow-auto max-h-[80vh] w-full flex justify-center p-2">
               <img
-                src={fullscreenPoster}
+                src={formatGoogleDriveUrl(fullscreenPoster) || fullscreenPoster}
                 alt="Full Screen Event Poster"
                 className="max-h-[75vh] w-auto object-contain rounded-xl shadow-lg border border-slate-800"
                 referrerPolicy="no-referrer"
+                onError={(e) => {
+                  (e.currentTarget as HTMLImageElement).src = "https://images.unsplash.com/photo-1511578314322-379afb476865?auto=format&fit=crop&w=800&q=80";
+                }}
               />
             </div>
           </div>

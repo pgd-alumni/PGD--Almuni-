@@ -1372,7 +1372,8 @@ async function startServer() {
   const app = express();
   const PORT = 3000;
 
-  app.use(express.json());
+  app.use(express.json({ limit: '50mb' }));
+  app.use(express.urlencoded({ extended: true, limit: '50mb' }));
 
   // API Endpoints
   // 0. Google Drive Image Proxy Endpoint (bypasses browser CORS & hotlink protections)
@@ -2297,6 +2298,22 @@ async function startServer() {
       emailResult: sendRes,
       gmailComposeUrl,
       mailtoUrl
+    });
+  });
+
+  // Admin Delete Event Registration
+  app.delete("/api/admin/event-registrations/:id", (req, res) => {
+    const { id } = req.params;
+    const index = inMemoryEventRegistrations.findIndex(r => r.id === id);
+    if (index === -1) {
+      return res.status(404).json({ success: false, message: "Registration record not found" });
+    }
+    const [deleted] = inMemoryEventRegistrations.splice(index, 1);
+    savePersistedData('event_registrations.json', inMemoryEventRegistrations);
+    res.json({ 
+      success: true, 
+      message: `Registration for ${deleted.studentName || id} deleted successfully`, 
+      data: deleted 
     });
   });
 
@@ -3791,6 +3808,15 @@ function verifyAlumniByRoll(rollNo) {
   // Catch-all 404 handler for API routes to prevent fallback to SPA HTML
   app.all('/api/*', (req, res) => {
     res.status(404).json({ success: false, message: `API route ${req.method} ${req.path} not found` });
+  });
+
+  // Global API error handler to prevent returning HTML error pages
+  app.use('/api', (err: any, req: express.Request, res: express.Response, next: express.NextFunction) => {
+    console.error("API Error Middleware caught error:", err);
+    res.status(err.status || 500).json({
+      success: false,
+      message: err.message || "Internal server error"
+    });
   });
 
   // Serve static assets

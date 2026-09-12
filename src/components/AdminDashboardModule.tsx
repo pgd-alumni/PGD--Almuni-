@@ -32,9 +32,10 @@ import {
   UserPlus,
   RotateCcw,
   Copy,
-  Settings
+  Settings,
+  Archive
 } from 'lucide-react';
-import { JobPost, EventItem, EventRegistration, TableTalkPost, MemberJoinRequest, AlumniRecord } from '../types';
+import { JobPost, EventItem, EventRegistration, TableTalkPost, MemberJoinRequest, AlumniRecord, formatGoogleDriveUrl, isEventOneDayOver } from '../types';
 import { WhapiSettingsModule } from './WhapiSettingsModule';
 import { AdminCompaniesModule } from './AdminCompaniesModule';
 
@@ -224,6 +225,9 @@ export const AdminDashboardModule: React.FC<AdminDashboardModuleProps> = ({
   const [approvingRegId, setApprovingRegId] = useState<string | null>(null);
   const [sendingEmailId, setSendingEmailId] = useState<string | null>(null);
   const [emailSendStatus, setEmailSendStatus] = useState<{ success: boolean; message: string } | null>(null);
+  const [deletingRegId, setDeletingRegId] = useState<string | null>(null);
+  const [confirmingDeleteRegId, setConfirmingDeleteRegId] = useState<string | null>(null);
+  const [deleteRegFeedback, setDeleteRegFeedback] = useState<{ success: boolean; text: string } | null>(null);
 
   // Email / SMTP Settings Modal State
   const [showEmailConfigModal, setShowEmailConfigModal] = useState(false);
@@ -603,7 +607,14 @@ export const AdminDashboardModule: React.FC<AdminDashboardModuleProps> = ({
         })
       });
 
-      const data = await res.json();
+      const text = await res.text();
+      let data: any = {};
+      try {
+        data = JSON.parse(text);
+      } catch {
+        throw new Error(`Server returned error (${res.status}): ${text.slice(0, 100)}`);
+      }
+
       if (res.ok && data.success) {
         setEvtSuccess("✓ Event Program Advertisement Published Successfully! WhatsApp Notification Dispatched & Media Backed Up to Google Drive.");
         setEvtTitle('');
@@ -703,6 +714,39 @@ export const AdminDashboardModule: React.FC<AdminDashboardModuleProps> = ({
       setEmailSendStatus({ success: false, message: `Error: ${(err as Error).message}` });
     } finally {
       setSendingEmailId(null);
+    }
+  };
+
+  const handleDeleteRegistration = async (regId: string, studentName?: string) => {
+    setDeletingRegId(regId);
+    setDeleteRegFeedback(null);
+    try {
+      const res = await fetch(`/api/admin/event-registrations/${encodeURIComponent(regId)}`, {
+        method: 'DELETE'
+      });
+      const data = await res.json();
+      if (res.ok && data.success) {
+        setRegistrations(prev => prev.filter(r => r.id !== regId));
+        setDeleteRegFeedback({ 
+          success: true, 
+          text: `✓ Registration for ${studentName || regId} deleted successfully.` 
+        });
+        setConfirmingDeleteRegId(null);
+        setTimeout(() => setDeleteRegFeedback(null), 4000);
+      } else {
+        setDeleteRegFeedback({ 
+          success: false, 
+          text: `❌ Failed to delete: ${data.message || 'Unknown error'}` 
+        });
+      }
+    } catch (err) {
+      console.error(err);
+      setDeleteRegFeedback({ 
+        success: false, 
+        text: `❌ Error deleting registration: ${(err as Error).message}` 
+      });
+    } finally {
+      setDeletingRegId(null);
     }
   };
 
@@ -1560,11 +1604,44 @@ export const AdminDashboardModule: React.FC<AdminDashboardModuleProps> = ({
                   onChange={(e) => {
                     const file = e.target.files?.[0];
                     if (file) {
-                      const reader = new FileReader();
-                      reader.onloadend = () => {
-                        setEvtThumbnail(reader.result as string);
-                      };
-                      reader.readAsDataURL(file);
+                      if (file.type.startsWith('image/')) {
+                        const reader = new FileReader();
+                        reader.onload = (loadEvt) => {
+                          const img = new Image();
+                          img.onload = () => {
+                            const canvas = document.createElement('canvas');
+                            const MAX_WIDTH = 1200;
+                            const MAX_HEIGHT = 1680;
+                            let width = img.width;
+                            let height = img.height;
+
+                            if (width > MAX_WIDTH || height > MAX_HEIGHT) {
+                              const ratio = Math.min(MAX_WIDTH / width, MAX_HEIGHT / height);
+                              width = Math.round(width * ratio);
+                              height = Math.round(height * ratio);
+                            }
+
+                            canvas.width = width;
+                            canvas.height = height;
+                            const ctx = canvas.getContext('2d');
+                            if (ctx) {
+                              ctx.drawImage(img, 0, 0, width, height);
+                              const compressed = canvas.toDataURL('image/jpeg', 0.88);
+                              setEvtThumbnail(compressed);
+                            } else {
+                              setEvtThumbnail(loadEvt.target?.result as string);
+                            }
+                          };
+                          img.src = loadEvt.target?.result as string;
+                        };
+                        reader.readAsDataURL(file);
+                      } else {
+                        const reader = new FileReader();
+                        reader.onloadend = () => {
+                          setEvtThumbnail(reader.result as string);
+                        };
+                        reader.readAsDataURL(file);
+                      }
                     }
                   }}
                   className="w-full sm:w-auto text-xs text-slate-600 file:mr-3 file:py-2 file:px-4 file:rounded-xl file:border-0 file:text-xs file:font-bold file:bg-amber-500 file:text-slate-950 hover:file:bg-amber-400 cursor-pointer"
@@ -1574,24 +1651,43 @@ export const AdminDashboardModule: React.FC<AdminDashboardModuleProps> = ({
                   type="text"
                   value={evtThumbnail}
                   onChange={(e) => setEvtThumbnail(e.target.value)}
-                  placeholder="https://drive.google.com/file/d/..."
+                  placeholder="https://drive.google.com/file/d/... or https://..."
                   className="flex-1 w-full bg-white border border-slate-300 rounded-xl px-3 py-2 text-xs font-mono text-slate-900 focus:outline-none focus:border-amber-500"
                 />
               </div>
               
               <div className="flex items-center justify-between text-[11px] text-emerald-700 font-semibold pt-1">
                 <span>📁 Uploaded poster media automatically backed up into Google Drive folder: <code className="bg-emerald-100 px-1.5 py-0.5 rounded font-mono font-bold">Google_Drive/Event_Class_Posters</code></span>
-                {evtThumbnail && <span className="text-xs font-bold text-amber-700">✓ Poster Loaded</span>}
+                {evtThumbnail && (
+                  <div className="flex items-center space-x-2">
+                    <span className="text-xs font-bold text-amber-700">✓ Poster Loaded</span>
+                    <button
+                      type="button"
+                      onClick={() => setEvtThumbnail('')}
+                      className="text-[10px] font-bold text-rose-600 hover:text-rose-800 underline ml-1 cursor-pointer"
+                    >
+                      Remove Poster
+                    </button>
+                  </div>
+                )}
               </div>
 
               {evtThumbnail && (
-                <div className="flex items-center space-x-3 mt-2">
-                  <div className="w-20 aspect-[5/7] rounded-xl overflow-hidden border-2 border-amber-500 shadow-md">
-                    <img src={evtThumbnail} alt="Class Poster Preview" className="w-full h-full object-cover" />
+                <div className="flex items-center space-x-3 mt-2 bg-slate-50 p-2.5 rounded-2xl border border-slate-200">
+                  <div className="w-20 aspect-[5/7] rounded-xl overflow-hidden border-2 border-amber-500 shadow-md bg-slate-900 shrink-0">
+                    <img 
+                      src={formatGoogleDriveUrl(evtThumbnail) || evtThumbnail} 
+                      alt="Class Poster Preview" 
+                      className="w-full h-full object-cover" 
+                      referrerPolicy="no-referrer"
+                      onError={(e) => {
+                        (e.currentTarget as HTMLImageElement).src = "https://images.unsplash.com/photo-1511578314322-379afb476865?auto=format&fit=crop&w=800&q=80";
+                      }}
+                    />
                   </div>
                   <div className="text-xs text-slate-600">
                     <strong className="block text-slate-900 font-bold">5:7 Portrait Live Preview</strong>
-                    <span className="text-[11px] text-emerald-600 font-semibold">✓ Ready for front page sidebar carousel</span>
+                    <span className="text-[11px] text-emerald-600 font-semibold">✓ Ready for front page sidebar carousel and Events module</span>
                   </div>
                 </div>
               )}
@@ -1635,26 +1731,60 @@ export const AdminDashboardModule: React.FC<AdminDashboardModuleProps> = ({
               </div>
             ) : (
               <div className="space-y-3">
-                {localEvents.map((evt) => (
-                  <div key={evt.id} className="bg-slate-50 border border-slate-200 rounded-2xl p-4 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 transition-all hover:border-slate-300">
-                    <div className="space-y-1">
-                      <div className="flex items-center space-x-2">
-                        <span className="font-extrabold text-slate-900 text-sm">{evt.title}</span>
-                        {evt.category && evt.category.trim() !== '' && (
-                          <span className="px-2 py-0.5 rounded-md bg-amber-100 text-amber-900 font-bold text-[10px] border border-amber-300">
-                            {evt.category.trim()}
-                          </span>
-                        )}
-                      </div>
-                      <p className="text-xs text-slate-600">
-                        Date: <strong>{evt.date}</strong> ({evt.time}) • Venue: {evt.venue}
-                      </p>
-                      <p className="text-[10px] text-slate-400 font-mono">
-                        Host: {evt.hostName || 'BUTEX Alumni'}
-                      </p>
-                    </div>
+                {localEvents.map((evt) => {
+                  const isOverOneDay = isEventOneDayOver(evt.date);
+                  const formattedThumbnail = formatGoogleDriveUrl(evt.thumbnailUrl) || evt.thumbnailUrl;
 
-                    {confirmingEraseId === evt.id ? (
+                  return (
+                    <div key={evt.id} className="bg-slate-50 border border-slate-200 rounded-2xl p-4 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 transition-all hover:border-slate-300">
+                      <div className="flex items-start sm:items-center space-x-3">
+                        {evt.thumbnailUrl ? (
+                          <div className="w-14 h-20 rounded-xl overflow-hidden border border-slate-300 bg-slate-900 shadow-xs shrink-0">
+                            <img
+                              src={formattedThumbnail}
+                              alt={evt.title}
+                              className="w-full h-full object-cover"
+                              referrerPolicy="no-referrer"
+                              onError={(e) => {
+                                (e.currentTarget as HTMLImageElement).src = "https://images.unsplash.com/photo-1511578314322-379afb476865?auto=format&fit=crop&w=800&q=80";
+                              }}
+                            />
+                          </div>
+                        ) : (
+                          <div className="w-14 h-20 rounded-xl bg-slate-200 border border-slate-300 flex items-center justify-center shrink-0 text-slate-400">
+                            <Calendar className="w-6 h-6" />
+                          </div>
+                        )}
+
+                        <div className="space-y-1">
+                          <div className="flex flex-wrap items-center gap-2">
+                            <span className="font-extrabold text-slate-900 text-sm">{evt.title}</span>
+                            {isOverOneDay ? (
+                              <span className="px-2 py-0.5 rounded-md bg-rose-100 text-rose-800 font-mono font-bold text-[10px] border border-rose-300 flex items-center space-x-1">
+                                <Archive className="w-2.5 h-2.5" />
+                                <span>Archived (1+ Day Over)</span>
+                              </span>
+                            ) : (
+                              <span className="px-2 py-0.5 rounded-md bg-emerald-100 text-emerald-800 font-bold text-[10px] border border-emerald-300">
+                                Active Program
+                              </span>
+                            )}
+                            {evt.category && evt.category.trim() !== '' && (
+                              <span className="px-2 py-0.5 rounded-md bg-amber-100 text-amber-900 font-bold text-[10px] border border-amber-300">
+                                {evt.category.trim()}
+                              </span>
+                            )}
+                          </div>
+                          <p className="text-xs text-slate-600">
+                            Date: <strong>{evt.date}</strong> ({evt.time}) • Venue: {evt.venue}
+                          </p>
+                          <p className="text-[10px] text-slate-400 font-mono">
+                            Host: {evt.hostName || 'BUTEX Alumni'}
+                          </p>
+                        </div>
+                      </div>
+
+                      {confirmingEraseId === evt.id ? (
                       <div className="flex items-center space-x-2 shrink-0 bg-rose-50 border border-rose-200 p-2 rounded-xl">
                         <span className="text-xs font-bold text-rose-800">Erase post permanently?</span>
                         <button
@@ -1683,8 +1813,9 @@ export const AdminDashboardModule: React.FC<AdminDashboardModuleProps> = ({
                       </button>
                     )}
                   </div>
-                ))}
-              </div>
+                );
+              })}
+            </div>
             )}
           </div>
         </div>
@@ -1983,6 +2114,15 @@ export const AdminDashboardModule: React.FC<AdminDashboardModuleProps> = ({
               </div>
             )}
 
+          {deleteRegFeedback && (
+            <div className={`p-3 rounded-xl text-xs font-bold flex items-center justify-between shadow-xs mb-3 ${
+              deleteRegFeedback.success ? 'bg-emerald-100 text-emerald-900 border border-emerald-300' : 'bg-rose-100 text-rose-900 border border-rose-300'
+            }`}>
+              <span>{deleteRegFeedback.text}</span>
+              <button onClick={() => setDeleteRegFeedback(null)} className="text-slate-500 hover:text-slate-900 font-bold ml-2">×</button>
+            </div>
+          )}
+
           {regLoading ? (
             <p className="text-xs text-slate-500 italic py-4">Loading event registrations...</p>
           ) : registrations.length === 0 ? (
@@ -2103,6 +2243,35 @@ export const AdminDashboardModule: React.FC<AdminDashboardModuleProps> = ({
                           >
                             <X className="w-3 h-3" />
                             <span>Reject</span>
+                          </button>
+                        )}
+
+                        {/* Delete Registration Option */}
+                        {confirmingDeleteRegId === r.id ? (
+                          <div className="inline-flex items-center space-x-1 bg-rose-50 border border-rose-300 p-1 rounded-lg">
+                            <span className="text-[9px] font-bold text-rose-800">Delete?</span>
+                            <button
+                              onClick={() => handleDeleteRegistration(r.id, r.studentName)}
+                              disabled={deletingRegId === r.id}
+                              className="px-1.5 py-0.5 bg-rose-600 hover:bg-rose-700 text-white font-bold text-[9px] rounded transition-all disabled:opacity-50"
+                            >
+                              {deletingRegId === r.id ? '...' : 'Yes'}
+                            </button>
+                            <button
+                              onClick={() => setConfirmingDeleteRegId(null)}
+                              className="px-1.5 py-0.5 bg-slate-200 hover:bg-slate-300 text-slate-700 font-bold text-[9px] rounded transition-all"
+                            >
+                              No
+                            </button>
+                          </div>
+                        ) : (
+                          <button
+                            onClick={() => setConfirmingDeleteRegId(r.id)}
+                            className="px-2 py-1 rounded-lg bg-rose-50 hover:bg-rose-100 border border-rose-200 text-rose-700 hover:text-rose-900 font-bold text-[10px] inline-flex items-center space-x-1 shadow-xs transition-all active:scale-95 ml-1"
+                            title="Delete this registration record"
+                          >
+                            <Trash2 className="w-2.5 h-2.5" />
+                            <span>Delete</span>
                           </button>
                         )}
                       </td>

@@ -232,14 +232,56 @@ export const formatGoogleDriveUrl = (url?: string): string => {
   let trimmed = url.trim();
   if (!trimmed) return '';
 
-  if (trimmed.startsWith('https://lh3.googleusercontent.com') || trimmed.startsWith('https://drive.google.com/thumbnail')) {
+  if (trimmed.startsWith('data:image/')) {
+    return trimmed;
+  }
+
+  if (trimmed.startsWith('/api/drive-image/') || trimmed.startsWith('https://lh3.googleusercontent.com') || trimmed.startsWith('https://drive.google.com/thumbnail')) {
     return trimmed;
   }
 
   const match = trimmed.match(/(?:id=|\/d\/)([\w-]+)/);
   if (match && match[1]) {
-    return `https://lh3.googleusercontent.com/d/${match[1]}=w800`;
+    return `/api/drive-image/${match[1]}`;
   }
 
   return trimmed;
+};
+
+/**
+ * Calculates whether an event date is over 1 full day (24+ hours) in the past.
+ * Used to automatically transition expired meetings to the Archive section.
+ */
+export const isEventOneDayOver = (dateStr?: string): boolean => {
+  if (!dateStr || typeof dateStr !== 'string') return false;
+  const trimmed = dateStr.trim();
+  if (!trimmed) return false;
+
+  try {
+    let timestamp = Date.parse(trimmed);
+
+    // If standard parsing failed, try "17-Sep-2026", "17 Sep 2026", "17/09/2026", etc.
+    if (isNaN(timestamp)) {
+      const matchWord = trimmed.match(/^(\d{1,2})[-/ ]([A-Za-z]{3,9})[-/ ](\d{4})/);
+      if (matchWord) {
+        timestamp = Date.parse(`${matchWord[2]} ${matchWord[1]}, ${matchWord[3]}`);
+      } else {
+        const matchNum = trimmed.match(/^(\d{1,2})[-/](\d{1,2})[-/](\d{4})/);
+        if (matchNum) {
+          timestamp = Date.parse(`${matchNum[3]}-${matchNum[2]}-${matchNum[1]}`);
+        }
+      }
+    }
+
+    if (isNaN(timestamp)) return false;
+
+    // Check if the current time is more than 1 day (24 hours) after the event timestamp
+    const eventTime = timestamp;
+    const now = Date.now();
+    const oneDayMs = 24 * 60 * 60 * 1000;
+    
+    return (now - eventTime) > oneDayMs;
+  } catch {
+    return false;
+  }
 };
