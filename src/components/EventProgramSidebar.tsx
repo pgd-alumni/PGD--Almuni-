@@ -1,7 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { Calendar, Clock, MapPin, Sparkles, ChevronLeft, ChevronRight, FileText, UserCheck, Star, Lock, Unlock, MessageSquare, Send, Maximize2, X } from 'lucide-react';
 import { EventItem, EventReview, formatGoogleDriveUrl, isEventOneDayOver } from '../types';
-import { ClassReviewSection } from './ClassReviewSection';
 
 interface EventProgramSidebarProps {
   events: EventItem[];
@@ -131,7 +130,7 @@ export const EventProgramSidebar: React.FC<EventProgramSidebarProps> = ({
         
         {/* Slide navigation controls */}
         {events.length > 1 && (
-          <div className="flex items-center justify-between mb-2.5 border-b border-slate-800 pb-2">
+          <div className="flex items-center justify-between mb-2.5 border-b border-slate-800 pb-2 shrink-0">
             <span className="text-[10px] font-bold text-amber-400 uppercase tracking-wider">
               Slide {safeSlideIndex + 1} of {events.length}
             </span>
@@ -156,12 +155,13 @@ export const EventProgramSidebar: React.FC<EventProgramSidebarProps> = ({
 
         {/* Poster Media Slide Content */}
         {activeEvent && (
-          <div className="space-y-3 flex-1 flex flex-col justify-between">
-            {/* Visual Class Thumbnail Poster - Professional Aspect Ratio */}
+          <div className="space-y-3 flex-1 min-h-0 flex flex-col justify-between">
+            {/* Visual Class Thumbnail Poster - Exact 3.3:5 Aspect Ratio & Full-Height Fit */}
             {activeEvent.thumbnailUrl && (
               <div 
                 onClick={() => setFullscreenPoster(formatGoogleDriveUrl(activeEvent.thumbnailUrl) || activeEvent.thumbnailUrl || null)}
-                className="w-full aspect-[16/10] sm:aspect-[4/3] rounded-2xl overflow-hidden relative group border border-slate-800 bg-slate-900 shadow-md shrink-0 cursor-pointer"
+                style={{ aspectRatio: '3.3 / 5' }}
+                className="w-full flex-1 min-h-[360px] sm:min-h-[420px] max-h-[580px] rounded-2xl overflow-hidden relative group border border-slate-800 bg-slate-900 shadow-md cursor-pointer flex items-center justify-center mx-auto"
                 title="Click to expand full screen poster preview"
               >
                 <img
@@ -190,7 +190,7 @@ export const EventProgramSidebar: React.FC<EventProgramSidebarProps> = ({
 
             {/* Slider Dots Indicator - Interactive Carousel Control */}
             {events.length > 1 && (
-              <div className="flex flex-col items-center justify-center space-y-1 pt-1">
+              <div className="flex flex-col items-center justify-center space-y-1 pt-1 shrink-0">
                 <div className="flex justify-center items-center space-x-2">
                   {events.map((_, idx) => (
                     <button
@@ -215,7 +215,7 @@ export const EventProgramSidebar: React.FC<EventProgramSidebarProps> = ({
 
         {/* TWO ACTION BUTTONS (Inline 50/50 ratio, Dark Navy Buttons) directly under thumbnail poster */}
         {activeEvent && (
-          <div className="grid grid-cols-2 gap-2 pt-3 border-t border-slate-800/80 mt-2">
+          <div className="grid grid-cols-2 gap-2 pt-3 border-t border-slate-800/80 mt-2 shrink-0">
             {/* Button 1: Details */}
             <button
               onClick={() => {

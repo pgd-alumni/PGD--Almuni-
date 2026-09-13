@@ -1,7 +1,6 @@
 import React, { useState } from 'react';
-import { X, CheckCircle2, ShieldCheck, Sparkles, CreditCard, Send, AlertCircle, ExternalLink, FileSpreadsheet } from 'lucide-react';
+import { X, CheckCircle2, Sparkles, CreditCard, Send, AlertCircle } from 'lucide-react';
 import { EventItem } from '../types';
-import { ClassReviewSection } from './ClassReviewSection';
 
 interface EventRegistrationModalProps {
   event: EventItem | null;
@@ -173,28 +172,6 @@ export const EventRegistrationModal: React.FC<EventRegistrationModalProps> = ({
                 </div>
               )}
 
-              {/* Google Form Integration Notice Banner */}
-              <div className="bg-emerald-50/80 p-3 rounded-2xl border border-emerald-200 text-[11px] text-emerald-950 font-medium space-y-1.5">
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center space-x-1.5 font-bold text-emerald-900 text-xs">
-                    <ShieldCheck className="w-4 h-4 text-emerald-700 shrink-0" />
-                    <span>Official Google Form & Sheet Integration</span>
-                  </div>
-                  <a
-                    href="https://docs.google.com/forms/d/17JX7qmH_lrqkT0eHE2dhuPSrIjrL2WeRcF24vDNfYJQ/viewform"
-                    target="_blank"
-                    rel="noreferrer"
-                    className="inline-flex items-center space-x-1 text-[10px] text-indigo-700 hover:text-indigo-900 font-bold underline shrink-0"
-                  >
-                    <span>Open Form Link</span>
-                    <ExternalLink className="w-2.5 h-2.5" />
-                  </a>
-                </div>
-                <p className="text-[10px] text-emerald-800 leading-snug">
-                  Every submission is automatically saved to the official Google Form responses sheet. Once approved by the executive admin, your confirmation pass and meeting link will be emailed immediately.
-                </p>
-              </div>
-
               {/* 1st Input Field: Student Name */}
               <div>
                 <label className="block text-[10px] uppercase font-bold text-slate-700 mb-1">
@@ -336,11 +313,6 @@ export const EventRegistrationModal: React.FC<EventRegistrationModalProps> = ({
                   <Send className="w-4 h-4 shrink-0" />
                   <span>{loading ? 'Submitting...' : 'Submission for admin approval'}</span>
                 </button>
-              </div>
-
-              {/* Class Review & Comments Section connected with event post */}
-              <div className="pt-4 border-t border-slate-200">
-                <ClassReviewSection event={activeEvent} />
               </div>
 
             </form>
