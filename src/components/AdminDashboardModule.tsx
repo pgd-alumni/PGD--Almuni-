@@ -892,7 +892,7 @@ export const AdminDashboardModule: React.FC<AdminDashboardModuleProps> = ({
       return;
     }
 
-    setPasscodeError("Invalid passcode! Enter 'codingadmin' for Coding Admin or 'butex2026' for Standard Admin.");
+    setPasscodeError("Invalid passcode! Please verify your admin credentials and try again.");
   };
 
   const handleElevateToSuper = (e: React.FormEvent) => {
@@ -909,7 +909,7 @@ export const AdminDashboardModule: React.FC<AdminDashboardModuleProps> = ({
       } catch (e) {}
       alert("👑 Role Elevated: You now have full Coding Admin privileges!");
     } else {
-      setElevateError("Incorrect Coding Admin Passcode! (Passcode: codingadmin)");
+      setElevateError("Incorrect Coding Admin Passcode! Please enter valid credentials.");
     }
   };
 
@@ -939,15 +939,6 @@ export const AdminDashboardModule: React.FC<AdminDashboardModuleProps> = ({
             <p className="text-[11px] text-amber-900 leading-snug">
               Full control over <strong>Whapi API keys</strong>, <strong>Google Sheet webhooks</strong>, plus job/event posting & deletion.
             </p>
-            <div className="pt-1">
-              <button
-                type="button"
-                onClick={() => setPasscode('codingadmin')}
-                className="text-[10px] font-mono bg-amber-200 hover:bg-amber-300 text-amber-950 px-2 py-0.5 rounded font-bold"
-              >
-                Passcode: codingadmin
-              </button>
-            </div>
           </div>
 
           <div className="p-3.5 bg-slate-50 rounded-2xl border border-slate-200 space-y-1">
@@ -958,15 +949,6 @@ export const AdminDashboardModule: React.FC<AdminDashboardModuleProps> = ({
             <p className="text-[11px] text-slate-600 leading-snug">
               Operational control: <strong>Create/delete job & event posts</strong>, review event joining requests & member registrations.
             </p>
-            <div className="pt-1">
-              <button
-                type="button"
-                onClick={() => setPasscode('butex2026')}
-                className="text-[10px] font-mono bg-slate-200 hover:bg-slate-300 text-slate-900 px-2 py-0.5 rounded font-bold"
-              >
-                Passcode: butex2026
-              </button>
-            </div>
           </div>
         </div>
 
@@ -984,7 +966,7 @@ export const AdminDashboardModule: React.FC<AdminDashboardModuleProps> = ({
               type="password"
               value={passcode}
               onChange={(e) => setPasscode(e.target.value)}
-              placeholder="Enter passcode (e.g. codingadmin or butex2026)"
+              placeholder="Enter your admin passcode"
               className="w-full bg-slate-50 border border-slate-300 rounded-xl px-4 py-3 text-center text-sm font-mono font-bold text-slate-900 focus:outline-none focus:border-amber-500"
             />
           </div>
@@ -996,8 +978,8 @@ export const AdminDashboardModule: React.FC<AdminDashboardModuleProps> = ({
           </button>
         </form>
 
-        <p className="text-[11px] text-slate-400 italic">
-          Try <code className="bg-slate-100 px-1.5 py-0.5 rounded text-amber-800 font-bold">codingadmin</code> for Coding Admin or <code className="bg-slate-100 px-1.5 py-0.5 rounded text-blue-800 font-bold">butex2026</code> for Standard Admin.
+        <p className="text-[11px] text-slate-400">
+          Authorized personnel only. Contact the central committee for access credentials.
         </p>
       </div>
     );
@@ -1106,7 +1088,7 @@ export const AdminDashboardModule: React.FC<AdminDashboardModuleProps> = ({
                 type="password"
                 value={superPasscodeAttempt}
                 onChange={(e) => setSuperPasscodeAttempt(e.target.value)}
-                placeholder="Enter Coding Admin Passcode (e.g. codingadmin)"
+                placeholder="Enter Coding Admin Passcode"
                 required
                 className="w-full bg-slate-50 border border-slate-300 rounded-xl px-4 py-3 text-center text-sm font-mono font-bold focus:outline-none focus:border-amber-500"
               />

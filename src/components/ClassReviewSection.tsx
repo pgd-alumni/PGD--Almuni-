@@ -240,7 +240,7 @@ export const ClassReviewSection: React.FC<ClassReviewSectionProps> = ({
       if (!userName) setUserName(inputContact.trim() || "Verified PGD Member");
       setShowLoginModal(false);
     } else {
-      setModalError("Invalid Passcode! (Try: BUTEX2026)");
+      setModalError("Invalid Passcode! Please verify your passcode and try again.");
     }
   };
 
@@ -834,7 +834,7 @@ export const ClassReviewSection: React.FC<ClassReviewSectionProps> = ({
                     type="password"
                     value={passcode}
                     onChange={(e) => setPasscode(e.target.value)}
-                    placeholder="Enter Passcode (e.g. BUTEX2026)"
+                    placeholder="Enter Member Passcode"
                     required
                     className="w-full bg-slate-950 border border-slate-700 rounded-xl px-3 py-2 text-xs text-white focus:outline-none focus:border-amber-400"
                   />
