@@ -169,8 +169,38 @@ export const AdminDashboardModule: React.FC<AdminDashboardModuleProps> = ({
       const res = await fetch(`/api/admin/tabletalk/${postId}`, { method: 'DELETE' });
       const data = await res.json();
       if (data.success) {
+        try {
+          const cached = localStorage.getItem('butex_table_talk_posts');
+          if (cached) {
+            const parsed = JSON.parse(cached);
+            if (Array.isArray(parsed)) {
+              const updated = parsed.filter((p: any) => p.id !== postId);
+              localStorage.setItem('butex_table_talk_posts', JSON.stringify(updated));
+            }
+          }
+        } catch (e) {}
+        setTableTalkPosts(prev => prev.filter(p => p.id !== postId));
+        window.dispatchEvent(new CustomEvent('tabletalk-changed', { detail: { action: 'delete', postId } }));
         alert("✓ Table Talk discussion deleted successfully!");
         fetchTableTalkPosts();
+      }
+    } catch (err) {
+      console.error(err);
+    }
+  };
+
+  const handleClearAllTableTalk = async () => {
+    if (!window.confirm("Are you sure you want to delete ALL Table Talk discussions and comments? This will completely clear the forum queue.")) return;
+    try {
+      const res = await fetch('/api/admin/tabletalk/clear-all', { method: 'POST' });
+      const data = await res.json();
+      if (data.success) {
+        try {
+          localStorage.setItem('butex_table_talk_posts', JSON.stringify([]));
+        } catch (e) {}
+        setTableTalkPosts([]);
+        window.dispatchEvent(new CustomEvent('tabletalk-changed', { detail: { action: 'clear-all' } }));
+        alert("✓ All Table Talk discussions and comments cleared successfully!");
       }
     } catch (err) {
       console.error(err);
@@ -1752,11 +1782,11 @@ export const AdminDashboardModule: React.FC<AdminDashboardModuleProps> = ({
                     <div key={evt.id} className="bg-slate-50 border border-slate-200 rounded-2xl p-4 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 transition-all hover:border-slate-300">
                       <div className="flex items-start sm:items-center space-x-3">
                         {evt.thumbnailUrl ? (
-                          <div className="w-14 h-20 rounded-xl overflow-hidden border border-slate-300 bg-slate-900 shadow-xs shrink-0">
+                          <div className="w-24 h-16 rounded-xl overflow-hidden border border-slate-300 bg-slate-900 shadow-xs shrink-0">
                             <img
                               src={formattedThumbnail}
                               alt={evt.title}
-                              className="w-full h-full object-cover"
+                              className="w-full h-full object-cover object-center"
                               referrerPolicy="no-referrer"
                               onError={(e) => {
                                 (e.currentTarget as HTMLImageElement).src = "https://images.unsplash.com/photo-1511578314322-379afb476865?auto=format&fit=crop&w=800&q=80";
@@ -1764,7 +1794,7 @@ export const AdminDashboardModule: React.FC<AdminDashboardModuleProps> = ({
                             />
                           </div>
                         ) : (
-                          <div className="w-14 h-20 rounded-xl bg-slate-200 border border-slate-300 flex items-center justify-center shrink-0 text-slate-400">
+                          <div className="w-24 h-16 rounded-xl bg-slate-200 border border-slate-300 flex items-center justify-center shrink-0 text-slate-400">
                             <Calendar className="w-6 h-6" />
                           </div>
                         )}
@@ -2741,12 +2771,26 @@ export const AdminDashboardModule: React.FC<AdminDashboardModuleProps> = ({
                 Review all active Table Talk discussions, inspect attached media links, and instantly erase offensive or expired posts.
               </p>
             </div>
-            <button
-              onClick={fetchTableTalkPosts}
-              className="px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-800 font-bold text-xs rounded-xl shadow-sm transition-colors shrink-0"
-            >
-              Refresh Table Talk Posts
-            </button>
+            <div className="flex items-center gap-2 shrink-0">
+              <button
+                type="button"
+                onClick={fetchTableTalkPosts}
+                className="px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-800 font-bold text-xs rounded-xl shadow-sm transition-colors"
+              >
+                Refresh
+              </button>
+              {tableTalkPosts.length > 0 && (
+                <button
+                  type="button"
+                  onClick={handleClearAllTableTalk}
+                  className="px-3.5 py-2 bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-200 font-bold text-xs rounded-xl shadow-sm transition-colors flex items-center gap-1.5"
+                  title="Wipe all Table Talk posts and discussions"
+                >
+                  <Trash2 className="w-3.5 h-3.5 text-rose-600" />
+                  <span>Clear All Discussions</span>
+                </button>
+              )}
+            </div>
           </div>
 
           <div className="p-4 bg-amber-50/70 border border-amber-200/80 rounded-2xl text-xs text-amber-900 flex items-center justify-between">

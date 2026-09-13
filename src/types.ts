@@ -146,6 +146,8 @@ export interface EventReview {
   rating: number; // 1 to 5
   comment: string;
   createdAt: string; // ISO date string
+  likesCount?: number;
+  reactions?: { [type: string]: number };
 }
 
 export interface TableTalkReview {

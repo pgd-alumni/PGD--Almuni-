@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Star, MessageSquare, Send, Lock, Unlock, ShieldCheck, Phone, Key, Sparkles, CheckCircle2, AlertCircle, X, Trash2 } from 'lucide-react';
+import { Star, MessageSquare, Send, Lock, Unlock, ShieldCheck, CheckCircle2, AlertCircle, X, Trash2, ThumbsUp, Heart, Lightbulb, Award } from 'lucide-react';
 import { EventItem, EventReview } from '../types';
 
 interface ClassReviewSectionProps {
@@ -7,6 +7,50 @@ interface ClassReviewSectionProps {
   isAdmin?: boolean;
   variant?: 'light' | 'dark';
 }
+
+// Exact Star Rating Renderer supporting fractional percentages (e.g. 4.2, 3.5, 5.0, 0.0)
+export const ExactStarRating: React.FC<{
+  rating: number; // 0 to 5
+  size?: string; // e.g. "w-3.5 h-3.5"
+  showNumber?: boolean;
+  totalReviews?: number;
+}> = ({ rating, size = "w-3.5 h-3.5", showNumber = true, totalReviews }) => {
+  const safeRating = Math.max(0, Math.min(5, Number(rating) || 0));
+
+  return (
+    <div className="flex items-center space-x-1.5" title={`${safeRating.toFixed(1)} out of 5 stars`}>
+      {showNumber && (
+        <span className="text-sm font-black text-slate-900 tracking-tight">
+          {totalReviews !== undefined && totalReviews === 0 ? '0.0' : safeRating.toFixed(1)}
+        </span>
+      )}
+      <div className="flex items-center space-x-0.5">
+        {[1, 2, 3, 4, 5].map((starIndex) => {
+          // Fraction of this specific star to fill (0 to 1)
+          const fillFraction = Math.max(0, Math.min(1, safeRating - (starIndex - 1)));
+          const fillPercent = Math.round(fillFraction * 100);
+
+          return (
+            <div key={starIndex} className={`relative ${size} shrink-0`}>
+              {/* Background Unfilled Star */}
+              <Star className={`${size} text-slate-300 fill-slate-100`} />
+              
+              {/* Proportional Amber Fill */}
+              {fillPercent > 0 && (
+                <div 
+                  className="absolute inset-0 overflow-hidden" 
+                  style={{ width: `${fillPercent}%` }}
+                >
+                  <Star className={`${size} fill-amber-400 text-amber-400`} />
+                </div>
+              )}
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+};
 
 export const ClassReviewSection: React.FC<ClassReviewSectionProps> = ({ 
   event, 
@@ -17,6 +61,17 @@ export const ClassReviewSection: React.FC<ClassReviewSectionProps> = ({
   const [isAuthenticated, setIsAuthenticated] = useState<boolean>(false);
   const [userContact, setUserContact] = useState<string>('');
   const [userName, setUserName] = useState<string>('');
+  const [userRoll, setUserRoll] = useState<string>('');
+
+  // Local Reaction tracking: { [reviewId_reactionType]: true }
+  const [userReactions, setUserReactions] = useState<{ [key: string]: boolean }>(() => {
+    try {
+      const saved = localStorage.getItem(`butex_event_reactions_${event?.id || 'general'}`);
+      return saved ? JSON.parse(saved) : {};
+    } catch {
+      return {};
+    }
+  });
 
   // Login Modal State
   const [showLoginModal, setShowLoginModal] = useState<boolean>(false);
@@ -36,7 +91,38 @@ export const ClassReviewSection: React.FC<ClassReviewSectionProps> = ({
   const [successMsg, setSuccessMsg] = useState<string | null>(null);
 
   // 20-minute post-start time unlock state
-  const [devUnlocked, setDevUnlocked] = useState<boolean>(true); // Enabled for easy previewing
+  const [devUnlocked, setDevUnlocked] = useState<boolean>(true); // Enabled for preview
+
+  // Admin status check (prop or localStorage)
+  const isLocalAdmin = isAdmin || Boolean(typeof window !== 'undefined' && localStorage.getItem('butex_admin_role'));
+
+  // Check current session from localStorage on mount
+  useEffect(() => {
+    try {
+      const savedUser = localStorage.getItem('butex_current_user');
+      const savedExpiry = localStorage.getItem('butex_auth_expiry');
+      if (savedUser && savedExpiry && Date.now() < parseInt(savedExpiry, 10)) {
+        const user = JSON.parse(savedUser);
+        if (user?.name) {
+          setIsAuthenticated(true);
+          setUserName(user.name);
+          setUserContact(user.phone || user.email || '');
+          if (user.roll) setUserRoll(user.roll);
+        }
+      }
+    } catch (e) {
+      console.error("Auth auto-load error:", e);
+    }
+  }, []);
+
+  // Save reactions to localStorage when changed
+  useEffect(() => {
+    try {
+      if (event?.id) {
+        localStorage.setItem(`butex_event_reactions_${event.id}`, JSON.stringify(userReactions));
+      }
+    } catch (e) {}
+  }, [userReactions, event?.id]);
 
   // Check 20-minute post-start time
   const checkTimeUnlocked = (): boolean => {
@@ -45,7 +131,7 @@ export const ClassReviewSection: React.FC<ClassReviewSectionProps> = ({
     try {
       const startDateTime = new Date(`${event.date} ${event.time || '10:00 AM'}`).getTime();
       const now = Date.now();
-      // 20 minutes = 20 * 60 * 1000 = 1,200,000 ms
+      // 20 minutes = 1,200,000 ms
       return now >= (startDateTime + 1200000);
     } catch (e) {
       return true;
@@ -132,6 +218,7 @@ export const ClassReviewSection: React.FC<ClassReviewSectionProps> = ({
         setIsAuthenticated(true);
         setUserContact(inputContact.trim());
         if (data.alumni?.name) setUserName(data.alumni.name);
+        if (data.alumni?.roll) setUserRoll(data.alumni.roll);
         setShowLoginModal(false);
       } else {
         setModalError(data.message || "Invalid OTP code!");
@@ -150,14 +237,14 @@ export const ClassReviewSection: React.FC<ClassReviewSectionProps> = ({
     if (normalized === 'butex2026' || normalized === 'admin' || normalized === '123456') {
       setIsAuthenticated(true);
       setUserContact(inputContact || "Verified Alumni");
-      if (!userName) setUserName("Verified PGD Member");
+      if (!userName) setUserName(inputContact.trim() || "Verified PGD Member");
       setShowLoginModal(false);
     } else {
       setModalError("Invalid Passcode! (Try: BUTEX2026)");
     }
   };
 
-  // Handle Submit Comment
+  // Handle Submit Comment with Exact Rating
   const handleSubmitComment = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!commentText.trim()) return;
@@ -171,6 +258,7 @@ export const ClassReviewSection: React.FC<ClassReviewSectionProps> = ({
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           studentName: userName || userContact || "Verified PGD Member",
+          studentRoll: userRoll || "",
           rating: rating,
           comment: commentText.trim()
         })
@@ -179,7 +267,7 @@ export const ClassReviewSection: React.FC<ClassReviewSectionProps> = ({
       const data = await res.json();
       if (res.ok && data.success) {
         setCommentText('');
-        setSuccessMsg("✓ Comment and 5-Star rating submitted successfully!");
+        setSuccessMsg(`✓ Your ${rating}-Star review and comment have been posted!`);
         loadReviews();
         setTimeout(() => setSuccessMsg(null), 4000);
       }
@@ -190,29 +278,94 @@ export const ClassReviewSection: React.FC<ClassReviewSectionProps> = ({
     }
   };
 
-  // Admin Erase Specific Toxic Comment
-  const handleEraseComment = async (reviewId: string) => {
-    if (!window.confirm("Are you sure you want to erase this comment?")) return;
+  // Toggle Reaction on Review / Comment
+  const handleToggleReaction = async (reviewId: string, reactionType: 'helpful' | 'heart' | 'insightful' | 'clap') => {
+    const reactionKey = `${reviewId}_${reactionType}`;
+    const isCurrentlyActive = !!userReactions[reactionKey];
+    const newAction = isCurrentlyActive ? 'remove' : 'add';
+
+    // Optimistic UI Update
+    setUserReactions(prev => ({ ...prev, [reactionKey]: !isCurrentlyActive }));
+    setReviews(prev => prev.map(r => {
+      if (r.id !== reviewId) return r;
+      const currentCount = r.reactions?.[reactionType] || 0;
+      const nextCount = newAction === 'add' ? currentCount + 1 : Math.max(0, currentCount - 1);
+      return {
+        ...r,
+        reactions: { ...(r.reactions || {}), [reactionType]: nextCount },
+        likesCount: newAction === 'add' ? (r.likesCount || 0) + 1 : Math.max(0, (r.likesCount || 0) - 1)
+      };
+    }));
+
     try {
-      const res = await fetch(`/api/admin/events/${event.id}/reviews/${reviewId}`, {
+      await fetch(`/api/events/${event.id}/reviews/${reviewId}/reaction`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ type: reactionType, action: newAction })
+      });
+    } catch (err) {
+      console.error("Failed to update reaction:", err);
+    }
+  };
+
+  // Admin or Author Erase Comment
+  const handleEraseComment = async (reviewId: string) => {
+    if (!window.confirm("Are you sure you want to delete this comment?")) return;
+    try {
+      const res = await fetch(`/api/events/${event.id}/reviews/${reviewId}`, {
         method: 'DELETE'
       });
       const data = await res.json();
       if (data.success) {
-        loadReviews();
+        setReviews(prev => prev.filter(r => r.id !== reviewId));
       }
     } catch (err) {
-      console.error("Error erasing comment:", err);
+      console.error("Error deleting comment:", err);
     }
   };
 
   const activeStarCount = hoverRating !== null ? hoverRating : rating;
 
-  const avgRating = reviews.length > 0
-    ? (reviews.reduce((acc, r) => acc + r.rating, 0) / reviews.length).toFixed(1)
-    : '4.8';
+  // Real Calculated Exact Rating
+  const totalReviewsCount = reviews.length;
+  const numericAvgRating = totalReviewsCount > 0
+    ? reviews.reduce((acc, r) => acc + (Number(r.rating) || 0), 0) / totalReviewsCount
+    : 0;
 
   const isLight = variant === 'light';
+
+  // Distinct real reviewer names
+  const uniqueReviewers: string[] = Array.from(new Set(reviews.map(r => r.studentName).filter(Boolean) as string[]));
+
+  // Rating descriptor tags
+  const getRatingLabel = (stars: number) => {
+    switch (stars) {
+      case 5: return '5★ - Excellent & Highly Recommended';
+      case 4: return '4★ - Very Good & Informative';
+      case 3: return '3★ - Good / Satisfactory';
+      case 2: return '2★ - Fair / Needs Practical Content';
+      case 1: return '1★ - Poor / Significant Room for Improvement';
+      default: return `${stars}★ Stars`;
+    }
+  };
+
+  // Relative Time helper
+  const formatTimeAgo = (isoDate: string) => {
+    try {
+      const time = new Date(isoDate).getTime();
+      if (isNaN(time)) return 'Recently';
+      const diffMinutes = Math.floor((Date.now() - time) / 60000);
+      if (diffMinutes < 1) return 'Just now';
+      if (diffMinutes < 60) return `${diffMinutes}m ago`;
+      const diffHours = Math.floor(diffMinutes / 60);
+      if (diffHours < 24) return `${diffHours}h ago`;
+      const diffDays = Math.floor(diffHours / 24);
+      if (diffDays < 7) return `${diffDays}d ago`;
+      return new Date(isoDate).toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
+    } catch {
+      return 'Recently';
+    }
+  };
 
   return (
     <div className={`rounded-3xl p-4 sm:p-5 border space-y-4 transition-all ${
@@ -221,7 +374,7 @@ export const ClassReviewSection: React.FC<ClassReviewSectionProps> = ({
         : 'bg-slate-900 border-slate-800 text-white'
     }`}>
       
-      {/* Header & Lock Toggle */}
+      {/* Header & Lock Status Toggle */}
       <div className={`flex items-center justify-between border-b pb-3 ${isLight ? 'border-amber-200/60' : 'border-slate-800'}`}>
         <div className="flex items-center space-x-2">
           <MessageSquare className={`w-4 h-4 ${isLight ? 'text-amber-600' : 'text-amber-400'}`} />
@@ -234,7 +387,7 @@ export const ClassReviewSection: React.FC<ClassReviewSectionProps> = ({
           <button
             onClick={() => setDevUnlocked(!devUnlocked)}
             className={`flex items-center space-x-1 ${isLight ? 'text-slate-600 hover:text-amber-700' : 'text-slate-400 hover:text-amber-400'} transition-colors`}
-            title="Toggle 20-min post-start lock simulation"
+            title="Toggle 20-min post-start lock condition"
           >
             {isUnlocked20Min ? <Unlock className="w-3 h-3 text-emerald-600" /> : <Lock className="w-3 h-3 text-rose-500" />}
             <span className="font-semibold">{isUnlocked20Min ? 'Unlocked' : 'Locked'}</span>
@@ -242,123 +395,209 @@ export const ClassReviewSection: React.FC<ClassReviewSectionProps> = ({
         </div>
       </div>
 
-      {/* Wireframe-matched Overall Rating Bar: "4.3 ★★★★★ (6 Reviews)" + Circle Initial Badges */}
-      <div className={`flex items-center justify-between px-3.5 py-2 rounded-xl border ${
-        isLight ? 'bg-amber-50/30 border-amber-300/80 text-slate-900' : 'bg-slate-800/80 border-slate-700 text-white'
+      {/* Overall Functional Rating Bar: Exact Fractional Stars + Actual Reviewer Badges */}
+      <div className={`flex flex-wrap items-center justify-between gap-3 px-3.5 py-2.5 rounded-xl border ${
+        isLight ? 'bg-amber-50/40 border-amber-300/80 text-slate-900' : 'bg-slate-800/80 border-slate-700 text-white'
       }`}>
-        <div className="flex items-center space-x-1.5 border border-amber-300/90 px-3 py-1 rounded-lg bg-white/90 shadow-xs">
-          <span className="text-sm font-black text-slate-900">{avgRating}</span>
-          <div className="flex items-center space-x-0.5 text-amber-500">
-            {Array.from({ length: 5 }).map((_, i) => (
-              <Star key={i} className="w-3.5 h-3.5 fill-amber-400 text-amber-400" />
-            ))}
-          </div>
-          <span className="text-xs font-bold text-slate-600">({reviews.length || 6} Reviews)</span>
+        {/* Exact Star Rating Display */}
+        <div className="flex items-center space-x-2 border border-amber-300/90 px-3 py-1.5 rounded-xl bg-white shadow-xs">
+          <ExactStarRating 
+            rating={numericAvgRating} 
+            size="w-4 h-4" 
+            totalReviews={totalReviewsCount}
+            showNumber={true} 
+          />
+          <span className="text-xs font-bold text-slate-600">
+            ({totalReviewsCount} {totalReviewsCount === 1 ? 'Review' : 'Reviews'})
+          </span>
         </div>
 
-        {/* Wireframe Circle Initial Badges (E) (M) (T) (F) (R) (+1 more) */}
-        <div className="flex items-center -space-x-1 overflow-hidden">
-          {[
-            { letter: 'E', bg: 'bg-[#0B192C]' },
-            { letter: 'M', bg: 'bg-[#6B6158]' },
-            { letter: 'T', bg: 'bg-[#827467]' },
-            { letter: 'F', bg: 'bg-[#0B192C]' },
-            { letter: 'R', bg: 'bg-[#827467]' },
-            { letter: '+1 more', bg: 'bg-slate-200 !text-slate-700 !w-auto !px-1.5' }
-          ].map((item, idx) => (
-            <div
-              key={idx}
-              className={`w-6 h-6 rounded-full ${item.bg} text-white text-[10px] font-black flex items-center justify-center ring-2 ring-white shadow-xs shrink-0`}
-            >
-              {item.letter}
-            </div>
-          ))}
-        </div>
-      </div>
-
-      {/* Wireframe Comments List: Left Avatar + Quote Comment Text + Star Rating */}
-      <div className="space-y-2.5 max-h-56 overflow-y-auto pr-1">
-        {reviews.length === 0 ? (
-          /* Default Sample Comments matching wireframe structure if no reviews yet */
-          <div className="space-y-2">
-            {[
-              {
-                id: 'demo-1',
-                initial: 'M',
-                bg: 'bg-[#6B6158]',
-                rating: 5,
-                comment: 'Outstanding organization and invaluable networking!'
-              },
-              {
-                id: 'demo-2',
-                initial: 'E',
-                bg: 'bg-[#0B192C]',
-                rating: 5,
-                comment: 'Their products are good, fresh. Recommended.'
-              },
-              {
-                id: 'demo-3',
-                initial: 'F',
-                bg: 'bg-[#827467]',
-                rating: 4,
-                comment: 'Nice shop but price is high'
-              }
-            ].map((rev) => (
-              <div key={rev.id} className={`p-3 rounded-2xl border flex items-start space-x-3 transition-all ${
-                isLight ? 'bg-white/90 border-amber-200/80 shadow-xs' : 'bg-slate-800/80 border-slate-700'
-              }`}>
-                <div className={`w-8 h-8 rounded-full ${rev.bg} text-white font-black text-xs flex items-center justify-center shrink-0 mt-0.5 ring-2 ring-white shadow-xs`}>
-                  {rev.initial}
+        {/* Real Reviewer Avatar Badges (rendered only when real reviews exist!) */}
+        {totalReviewsCount > 0 ? (
+          <div className="flex items-center -space-x-1.5 overflow-hidden" title={`${uniqueReviewers.length} unique reviewers`}>
+            {uniqueReviewers.slice(0, 5).map((revName, idx) => {
+              const initial = (revName || 'A').charAt(0).toUpperCase();
+              const colors = ['bg-[#0B192C]', 'bg-[#1E3A8A]', 'bg-amber-600', 'bg-emerald-700', 'bg-indigo-700'];
+              const bg = colors[idx % colors.length];
+              return (
+                <div
+                  key={idx}
+                  className={`w-6 h-6 rounded-full ${bg} text-white text-[10px] font-black flex items-center justify-center ring-2 ring-white shadow-xs shrink-0`}
+                  title={revName}
+                >
+                  {initial}
                 </div>
-                <div className="space-y-1 flex-1">
-                  <p className="text-xs font-extrabold text-slate-900 leading-snug">
-                    "{rev.comment}"
-                  </p>
-                  <div className="flex items-center space-x-0.5 text-amber-500">
-                    {Array.from({ length: rev.rating }).map((_, i) => (
-                      <Star key={i} className="w-3.5 h-3.5 fill-amber-400 text-amber-400" />
-                    ))}
-                  </div>
-                </div>
+              );
+            })}
+            {uniqueReviewers.length > 5 && (
+              <div className="px-1.5 h-6 rounded-full bg-slate-200 text-slate-700 text-[9px] font-black flex items-center justify-center ring-2 ring-white shadow-xs shrink-0">
+                +{uniqueReviewers.length - 5}
               </div>
-            ))}
+            )}
           </div>
         ) : (
-          reviews.map((rev) => (
-            <div key={rev.id} className={`p-3 rounded-2xl border flex items-start space-x-3 transition-all ${
-              isLight ? 'bg-white/90 border-amber-200/80 shadow-sm' : 'bg-slate-800/80 border-slate-700'
-            }`}>
-              <div className="w-8 h-8 rounded-full bg-amber-500 text-slate-950 font-black text-xs flex items-center justify-center shrink-0 mt-0.5 ring-2 ring-amber-400/50">
-                {rev.studentName ? rev.studentName.charAt(0).toUpperCase() : 'A'}
-              </div>
-              <div className="space-y-1 flex-1">
-                <div className="flex items-center justify-between">
-                  <span className="font-extrabold text-slate-900 text-xs">{rev.studentName}</span>
-                  {isAdmin && (
-                    <button
-                      onClick={() => handleEraseComment(rev.id)}
-                      className="p-1 text-rose-500 hover:text-rose-700 rounded transition-all"
-                      title="Erase Toxic Comment"
-                    >
-                      <Trash2 className="w-3 h-3" />
-                    </button>
-                  )}
-                </div>
-                <p className="text-xs text-slate-800 font-medium leading-relaxed">
-                  "{rev.comment}"
-                </p>
-                <div className="flex items-center space-x-0.5 text-amber-500">
-                  {Array.from({ length: rev.rating }).map((_, i) => (
-                    <Star key={i} className="w-3 h-3 fill-amber-400 text-amber-400" />
-                  ))}
-                </div>
-              </div>
-            </div>
-          ))
+          <div className="text-[11px] font-semibold text-amber-800/80 bg-amber-100/60 px-2.5 py-1 rounded-lg border border-amber-200">
+            Be the first to review!
+          </div>
         )}
       </div>
 
-      {/* Main Comment Section Container with Lock / Blur View State */}
+      {/* Real Reviews & Comments List (Zero Dummy Content!) */}
+      <div className="space-y-2.5 max-h-72 overflow-y-auto pr-1">
+        {reviews.length === 0 ? (
+          /* Clean, friendly empty state when no reviews exist yet */
+          <div className="py-7 px-4 text-center space-y-1.5 rounded-2xl bg-white/70 border border-amber-200/70 shadow-xs">
+            <MessageSquare className="w-7 h-7 text-amber-500/70 mx-auto" />
+            <p className="text-xs font-black text-slate-800">No event reviews or comments yet</p>
+            <p className="text-[11px] text-slate-500 max-w-sm mx-auto leading-relaxed">
+              Have you participated or planning to attend? Share your authentic feedback and star rating below!
+            </p>
+          </div>
+        ) : (
+          reviews.map((rev) => {
+            const authorInitial = rev.studentName ? rev.studentName.charAt(0).toUpperCase() : 'A';
+            const isAuthor = userName && rev.studentName && userName.toLowerCase() === rev.studentName.toLowerCase();
+            const canDelete = isLocalAdmin || isAuthor;
+
+            const helpfulKey = `${rev.id}_helpful`;
+            const heartKey = `${rev.id}_heart`;
+            const insightfulKey = `${rev.id}_insightful`;
+
+            const isHelpfulActive = !!userReactions[helpfulKey];
+            const isHeartActive = !!userReactions[heartKey];
+            const isInsightfulActive = !!userReactions[insightfulKey];
+
+            return (
+              <div 
+                key={rev.id} 
+                className={`p-3.5 rounded-2xl border flex flex-col space-y-2 transition-all ${
+                  isLight ? 'bg-white border-amber-200/90 shadow-xs hover:border-amber-300' : 'bg-slate-800/80 border-slate-700'
+                }`}
+              >
+                {/* Review Header: Avatar, Name, Roll, Time, Exact Stars, and Delete */}
+                <div className="flex items-start justify-between gap-2">
+                  <div className="flex items-center space-x-2.5">
+                    <div className="w-8 h-8 rounded-full bg-[#0B192C] text-amber-400 font-black text-xs flex items-center justify-center shrink-0 ring-2 ring-amber-400/40 shadow-xs">
+                      {authorInitial}
+                    </div>
+                    <div>
+                      <div className="flex items-center space-x-1.5">
+                        <span className="font-extrabold text-slate-900 text-xs">{rev.studentName}</span>
+                        {rev.studentRoll && (
+                          <span className="text-[10px] font-mono text-slate-500 bg-slate-100 px-1.5 py-0.5 rounded">
+                            {rev.studentRoll}
+                          </span>
+                        )}
+                      </div>
+                      <span className="text-[10px] text-slate-400 font-medium">
+                        {formatTimeAgo(rev.createdAt)}
+                      </span>
+                    </div>
+                  </div>
+
+                  <div className="flex items-center space-x-2 shrink-0">
+                    {/* Exact 5-star rating for this review */}
+                    <div className="flex items-center space-x-1 bg-amber-50 border border-amber-200/80 px-2 py-0.5 rounded-lg">
+                      <div className="flex items-center space-x-0.5">
+                        {[1, 2, 3, 4, 5].map((starNum) => (
+                          <Star 
+                            key={starNum} 
+                            className={`w-3 h-3 ${
+                              starNum <= rev.rating 
+                                ? 'fill-amber-400 text-amber-400' 
+                                : 'text-slate-300 fill-transparent'
+                            }`} 
+                          />
+                        ))}
+                      </div>
+                      <span className="text-[10px] font-black text-amber-800">{rev.rating}.0</span>
+                    </div>
+
+                    {canDelete && (
+                      <button
+                        onClick={() => handleEraseComment(rev.id)}
+                        className="p-1 text-slate-400 hover:text-rose-600 rounded-lg transition-colors"
+                        title="Delete this comment"
+                      >
+                        <Trash2 className="w-3.5 h-3.5" />
+                      </button>
+                    )}
+                  </div>
+                </div>
+
+                {/* Comment Content */}
+                <p className="text-xs text-slate-800 font-medium leading-relaxed pl-10">
+                  "{rev.comment}"
+                </p>
+
+                {/* Interactive Reactions Bar for Comments */}
+                <div className="flex items-center space-x-1.5 pl-10 pt-1">
+                  {/* Helpful Reaction */}
+                  <button
+                    type="button"
+                    onClick={() => handleToggleReaction(rev.id, 'helpful')}
+                    className={`px-2 py-1 rounded-lg text-[10px] font-bold flex items-center space-x-1 transition-all border ${
+                      isHelpfulActive
+                        ? 'bg-amber-100 border-amber-300 text-amber-900 shadow-xs scale-105'
+                        : 'bg-slate-50 border-slate-200 text-slate-600 hover:bg-slate-100'
+                    }`}
+                    title="Mark comment as helpful"
+                  >
+                    <ThumbsUp className={`w-3 h-3 ${isHelpfulActive ? 'fill-amber-500 text-amber-600' : 'text-slate-400'}`} />
+                    <span>Helpful</span>
+                    {(rev.reactions?.helpful || 0) > 0 && (
+                      <span className="font-mono text-[9px] font-extrabold ml-0.5">
+                        {rev.reactions?.helpful}
+                      </span>
+                    )}
+                  </button>
+
+                  {/* Heart / Love Reaction */}
+                  <button
+                    type="button"
+                    onClick={() => handleToggleReaction(rev.id, 'heart')}
+                    className={`px-2 py-1 rounded-lg text-[10px] font-bold flex items-center space-x-1 transition-all border ${
+                      isHeartActive
+                        ? 'bg-rose-50 border-rose-300 text-rose-800 shadow-xs scale-105'
+                        : 'bg-slate-50 border-slate-200 text-slate-600 hover:bg-slate-100'
+                    }`}
+                    title="Love this review"
+                  >
+                    <Heart className={`w-3 h-3 ${isHeartActive ? 'fill-rose-500 text-rose-500' : 'text-slate-400'}`} />
+                    {(rev.reactions?.heart || 0) > 0 && (
+                      <span className="font-mono text-[9px] font-extrabold ml-0.5">
+                        {rev.reactions?.heart}
+                      </span>
+                    )}
+                  </button>
+
+                  {/* Insightful Reaction */}
+                  <button
+                    type="button"
+                    onClick={() => handleToggleReaction(rev.id, 'insightful')}
+                    className={`px-2 py-1 rounded-lg text-[10px] font-bold flex items-center space-x-1 transition-all border ${
+                      isInsightfulActive
+                        ? 'bg-sky-50 border-sky-300 text-sky-900 shadow-xs scale-105'
+                        : 'bg-slate-50 border-slate-200 text-slate-600 hover:bg-slate-100'
+                    }`}
+                    title="Insightful feedback"
+                  >
+                    <Lightbulb className={`w-3 h-3 ${isInsightfulActive ? 'fill-sky-500 text-sky-600' : 'text-slate-400'}`} />
+                    {(rev.reactions?.insightful || 0) > 0 && (
+                      <span className="font-mono text-[9px] font-extrabold ml-0.5">
+                        {rev.reactions?.insightful}
+                      </span>
+                    )}
+                  </button>
+                </div>
+
+              </div>
+            );
+          })
+        )}
+      </div>
+
+      {/* Main Comment Section Container with Lock / Blur State */}
       <div className={`relative pt-2 border-t ${isLight ? 'border-amber-200/60' : 'border-slate-800'}`}>
         
         {/* Lock Overlay if time is < 20 mins post-start */}
@@ -376,32 +615,38 @@ export const ClassReviewSection: React.FC<ClassReviewSectionProps> = ({
           
           {/* If NOT Authenticated: Show prompt "Please sign in to leave a comment." */}
           {!isAuthenticated ? (
-            <div className={`p-4 rounded-2xl text-center space-y-2 border ${
+            <div className={`p-4 rounded-2xl text-center space-y-2.5 border ${
               isLight ? 'bg-amber-100/60 border-amber-300/80 text-slate-900' : 'bg-amber-500/10 border-amber-500/30 text-amber-300'
             }`}>
               <p className="text-xs font-bold">
-                Please sign in to leave a comment.
+                Please sign in to leave a comment and rate this event.
               </p>
               <button
+                type="button"
                 onClick={() => setShowLoginModal(true)}
-                className="px-5 py-2 bg-[#0B192C] hover:bg-[#1E3A8A] text-white font-black text-xs rounded-xl shadow-md transition-all hover:scale-105"
+                className="px-5 py-2 bg-[#0B192C] hover:bg-[#1E3A8A] text-white font-black text-xs rounded-xl shadow-md transition-all hover:scale-105 active:scale-95"
               >
-                Sign In to Unlock Comments
+                Sign In to Leave Feedback
               </button>
             </div>
           ) : (
-            /* Authenticated State: Interactive 5-Star Track + Comment Input Box */
-            <form onSubmit={handleSubmitComment} className={`space-y-3 p-3.5 rounded-2xl border ${
-              isLight ? 'bg-white/90 border-amber-200' : 'bg-slate-800/60 border-slate-700'
+            /* Authenticated State: Interactive Star Track + Rating Descriptor + Comment Input */
+            <form onSubmit={handleSubmitComment} className={`space-y-3 p-4 rounded-2xl border ${
+              isLight ? 'bg-white/95 border-amber-200 shadow-xs' : 'bg-slate-800/60 border-slate-700'
             }`}>
               
-              {/* Top 5-Star Track */}
-              <div className="flex items-center justify-between">
-                <span className={`text-[11px] font-bold ${isLight ? 'text-slate-700' : 'text-slate-300'}`}>
-                  Rate Event (Hover & Click Stars):
-                </span>
+              {/* Interactive 5-Star Track with Real-Time Feedback */}
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-amber-100 pb-2.5">
+                <div>
+                  <span className={`text-[11px] font-extrabold ${isLight ? 'text-slate-800' : 'text-slate-200'}`}>
+                    Select Your Rating:
+                  </span>
+                  <p className="text-[10px] font-bold text-amber-700">
+                    {getRatingLabel(activeStarCount)}
+                  </p>
+                </div>
 
-                <div className="flex items-center space-x-1">
+                <div className="flex items-center space-x-1.5 bg-amber-50/70 border border-amber-200/80 px-3 py-1 rounded-xl">
                   {[1, 2, 3, 4, 5].map((star) => (
                     <button
                       type="button"
@@ -409,18 +654,21 @@ export const ClassReviewSection: React.FC<ClassReviewSectionProps> = ({
                       onClick={() => setRating(star)}
                       onMouseEnter={() => setHoverRating(star)}
                       onMouseLeave={() => setHoverRating(null)}
-                      className="p-1 hover:scale-125 transition-transform"
+                      className="p-1 hover:scale-125 transition-transform focus:outline-none"
+                      title={`Rate ${star} Star${star > 1 ? 's' : ''}`}
                     >
                       <Star
                         className={`w-5 h-5 transition-colors ${
                           star <= activeStarCount
-                            ? 'fill-amber-400 text-amber-400 drop-shadow'
-                            : 'text-slate-300'
+                            ? 'fill-amber-400 text-amber-400 drop-shadow-sm'
+                            : 'text-slate-300 fill-transparent'
                         }`}
                       />
                     </button>
                   ))}
-                  <span className="text-xs font-bold text-amber-600 ml-1.5">{rating}/5</span>
+                  <span className="text-xs font-black text-amber-800 ml-1">
+                    {rating}/5
+                  </span>
                 </div>
               </div>
 
@@ -429,34 +677,38 @@ export const ClassReviewSection: React.FC<ClassReviewSectionProps> = ({
                 <textarea
                   value={commentText}
                   onChange={(e) => setCommentText(e.target.value)}
-                  placeholder={`Write your feedback for ${event.title}...`}
+                  placeholder={`Write your genuine experience or comment for ${event.title}...`}
                   rows={2}
                   required
-                  className={`w-full border rounded-xl p-2.5 text-xs focus:outline-none ${
+                  className={`w-full border rounded-xl p-3 text-xs focus:outline-none transition-all ${
                     isLight 
-                      ? 'bg-slate-50 border-amber-200 text-slate-900 placeholder-slate-400 focus:border-amber-500' 
+                      ? 'bg-slate-50 border-amber-200 text-slate-900 placeholder-slate-400 focus:border-amber-500 focus:bg-white' 
                       : 'bg-slate-900 border-slate-700 text-white placeholder-slate-500 focus:border-amber-400'
                   }`}
                 />
 
-                <div className="flex items-center justify-between">
-                  <span className="text-[10px] text-emerald-600 font-bold">
-                    Logged in as: {userName || userContact || "Verified Member"}
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <span className="text-[11px] text-emerald-700 font-bold flex items-center space-x-1">
+                    <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" />
+                    <span>Commenting as: {userName || userContact || "Verified Alumni"}</span>
                   </span>
 
                   <button
                     type="submit"
-                    disabled={isSubmitting}
-                    className="px-4 py-2 bg-[#0B192C] hover:bg-[#1E3A8A] text-white font-extrabold text-xs rounded-xl flex items-center space-x-1.5 shadow transition-all"
+                    disabled={isSubmitting || !commentText.trim()}
+                    className="px-4 py-2 bg-[#0B192C] hover:bg-[#1E3A8A] text-white font-extrabold text-xs rounded-xl flex items-center space-x-1.5 shadow-sm transition-all disabled:opacity-50 active:scale-95"
                   >
                     <Send className="w-3.5 h-3.5" />
-                    <span>{isSubmitting ? 'Posting...' : 'Submit Comment'}</span>
+                    <span>{isSubmitting ? 'Posting...' : 'Post Review & Rating'}</span>
                   </button>
                 </div>
               </div>
 
               {successMsg && (
-                <p className="text-[11px] text-emerald-600 font-bold pt-1">{successMsg}</p>
+                <div className="bg-emerald-50 border border-emerald-200 text-emerald-800 p-2 rounded-xl text-[11px] font-bold flex items-center space-x-1.5">
+                  <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
+                  <span>{successMsg}</span>
+                </div>
               )}
             </form>
           )}
@@ -464,7 +716,7 @@ export const ClassReviewSection: React.FC<ClassReviewSectionProps> = ({
         </div>
       </div>
 
-      {/* LOGIN MODAL POPUP */}
+      {/* LOGIN / VERIFICATION MODAL POPUP */}
       {showLoginModal && (
         <div className="fixed inset-0 z-[120] bg-slate-950/80 backdrop-blur-md flex items-center justify-center p-4">
           <div className="bg-slate-900 border border-slate-800 rounded-2xl max-w-sm w-full p-5 text-white shadow-2xl relative space-y-4 animate-fadeIn">
@@ -481,10 +733,10 @@ export const ClassReviewSection: React.FC<ClassReviewSectionProps> = ({
                 <ShieldCheck className="w-4 h-4" />
                 <span>Member Verification</span>
               </h3>
-              <p className="text-xs text-slate-400">Sign in to leave a comment on class events.</p>
+              <p className="text-xs text-slate-400">Sign in to leave a real comment and rating on class events.</p>
             </div>
 
-            {/* TWO TAB CHOICES */}
+            {/* TAB CHOICES */}
             <div className="grid grid-cols-2 gap-1 bg-slate-800 p-1 rounded-xl">
               <button
                 type="button"

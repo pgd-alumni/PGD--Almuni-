@@ -428,36 +428,7 @@ export const INITIAL_EVENTS: EventItem[] = [
   }
 ];
 
-export const INITIAL_TABLE_TALK: TableTalkPost[] = [
-  {
-    id: "TT-101",
-    hostName: "Dr. Kamruzzaman",
-    hostEmail: "dr.kamruz@butex.edu.bd",
-    hostRoll: "PGD-FACULTY",
-    discussionTopic: "Please put your comments on USTER Statistics (5% and 25%) for the Preparation of an USTER Report on 30 Ne Carded and Combed Yarn - Dr. Kamruzzaman",
-    dueDate: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString().split('T')[0],
-    dueTime: "10:30 AM",
-    attachedFileLink: "https://drive.google.com/file/d/1uMOI8R1PHXxq59k8mWVe7dEqOe60sePKmULDWbwrDEg/view?usp=sharing",
-    attachedFileName: "USTER_30Ne_Analysis_Doc.pdf",
-    takenPictureLink: "https://images.unsplash.com/photo-1581091226825-a6a2a5aee158?auto=format&fit=crop&w=800&q=80",
-    publishedAt: new Date(Date.now() - 3600000 * 12).toISOString(),
-    whatsappAlertSent: true,
-    likesCount: 0,
-    sharesCount: 0,
-    reactions: {},
-    reviews: [
-      {
-        id: "TTR-01",
-        postId: "TT-101",
-        participantName: "Md. Rafiqul Islam",
-        participantRoll: "PGD-2024-3-088",
-        rating: 4,
-        comment: "Very helpful session on EU Digital Product Passport requirements. Clear explanations by Nazmul Huda Sir.",
-        createdAt: new Date(Date.now() - 3600000 * 6).toISOString()
-      }
-    ]
-  }
-];
+export const INITIAL_TABLE_TALK: TableTalkPost[] = [];
 
 export function getInitialJobs(): JobPost[] {
   try {
@@ -478,9 +449,14 @@ export function getInitialEvents(): EventItem[] {
 export function getInitialTableTalk(): TableTalkPost[] {
   try {
     const saved = localStorage.getItem('butex_table_talk_posts');
-    if (saved) return JSON.parse(saved);
+    if (saved) {
+      const parsed = JSON.parse(saved);
+      if (Array.isArray(parsed)) {
+        return parsed.filter(p => p.id !== 'TT-101' && !p.discussionTopic?.includes('USTER Statistics'));
+      }
+    }
   } catch (e) {}
-  return INITIAL_TABLE_TALK;
+  return [];
 }
 
 export function computeLiveStats(alumni: AlumniRecord[], jobs: JobPost[], eventsList: EventItem[]): StatsData {

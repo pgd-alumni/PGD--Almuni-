@@ -157,17 +157,17 @@ export const EventProgramSidebar: React.FC<EventProgramSidebarProps> = ({
         {/* Poster Media Slide Content */}
         {activeEvent && (
           <div className="space-y-3 flex-1 flex flex-col justify-between">
-            {/* Visual Class Thumbnail Poster - 5:7 Aspect Ratio */}
+            {/* Visual Class Thumbnail Poster - Professional Aspect Ratio */}
             {activeEvent.thumbnailUrl && (
               <div 
                 onClick={() => setFullscreenPoster(formatGoogleDriveUrl(activeEvent.thumbnailUrl) || activeEvent.thumbnailUrl || null)}
-                className="w-full aspect-[5/7] rounded-xl overflow-hidden relative group border border-slate-800 bg-slate-900 shadow-md shrink-0 cursor-pointer"
+                className="w-full aspect-[16/10] sm:aspect-[4/3] rounded-2xl overflow-hidden relative group border border-slate-800 bg-slate-900 shadow-md shrink-0 cursor-pointer"
                 title="Click to expand full screen poster preview"
               >
                 <img
                   src={formatGoogleDriveUrl(activeEvent.thumbnailUrl) || activeEvent.thumbnailUrl}
                   alt={activeEvent.title}
-                  className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500"
+                  className="w-full h-full object-cover object-center group-hover:scale-105 transition-transform duration-500"
                   referrerPolicy="no-referrer"
                   onError={(e) => {
                     (e.currentTarget as HTMLImageElement).src = "https://images.unsplash.com/photo-1511578314322-379afb476865?auto=format&fit=crop&w=800&q=80";

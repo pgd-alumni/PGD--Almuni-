@@ -249,52 +249,55 @@ export const EventsModule: React.FC<EventsModuleProps> = ({
             >
               
               {/* Event Card: Responsive Flex with Left Poster Banner */}
-              <div className="flex flex-col lg:flex-row">
+              <div className="flex flex-col md:flex-row items-stretch">
 
-                {/* Event Poster / Visual Banner (Displayed Front and Center!) */}
+                {/* Event Poster / Visual Banner (Professional Widescreen Aspect Ratio) */}
                 {evt.thumbnailUrl ? (
                   <div 
                     onClick={() => setFullscreenPoster(formattedPosterUrl)}
-                    className="lg:w-64 xl:w-72 bg-slate-950 shrink-0 relative group cursor-pointer overflow-hidden border-b lg:border-b-0 lg:border-r border-slate-200 aspect-[5/7] sm:aspect-[16/9] lg:aspect-auto flex items-center justify-center"
+                    className="w-full md:w-80 lg:w-96 bg-slate-950 shrink-0 relative group cursor-pointer overflow-hidden border-b md:border-b-0 md:border-r border-slate-200 aspect-[16/10] sm:aspect-[16/9] md:aspect-auto flex items-center justify-center min-h-[220px] max-h-[360px] md:max-h-none"
                     title="Click to expand high-resolution event poster"
                   >
                     <img
                       src={formattedPosterUrl}
                       alt={evt.title}
-                      className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500"
+                      className="w-full h-full object-cover object-center group-hover:scale-105 transition-transform duration-500"
                       referrerPolicy="no-referrer"
                       onError={(e) => {
                         (e.currentTarget as HTMLImageElement).src = "https://images.unsplash.com/photo-1511578314322-379afb476865?auto=format&fit=crop&w=800&q=80";
                       }}
                     />
                     
+                    {/* Top & Bottom Vignette for Contrast */}
+                    <div className="absolute inset-0 bg-gradient-to-t from-slate-950/70 via-transparent to-slate-950/40 pointer-events-none" />
+
                     {/* Hover Overlay */}
                     <div className="absolute inset-0 bg-slate-950/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center p-3">
                       <span className="px-3 py-1.5 rounded-xl bg-amber-500 text-slate-950 font-black text-xs flex items-center space-x-1.5 shadow-lg">
                         <Maximize2 className="w-3.5 h-3.5" />
-                        <span>View Full Screen</span>
+                        <span>View Full Poster</span>
                       </span>
                     </div>
 
                     {/* Badge: Archived vs Live */}
                     {isOverOneDay ? (
-                      <div className="absolute top-3 left-3 px-2.5 py-1 rounded-lg bg-slate-950/90 text-amber-300 border border-amber-500/40 text-[10px] font-mono font-bold uppercase tracking-wider flex items-center space-x-1">
+                      <div className="absolute top-3 left-3 px-2.5 py-1 rounded-lg bg-slate-950/90 text-amber-300 border border-amber-500/40 text-[10px] font-mono font-bold uppercase tracking-wider flex items-center space-x-1 shadow-sm">
                         <Archive className="w-3 h-3 text-amber-400" />
                         <span>Archived (1+ Day Over)</span>
                       </div>
                     ) : (
-                      <div className="absolute top-3 left-3 px-2 py-0.5 rounded-md bg-emerald-600/90 text-white text-[10px] font-bold uppercase tracking-wider">
+                      <div className="absolute top-3 left-3 px-2.5 py-0.5 rounded-md bg-emerald-600/95 text-white text-[10px] font-bold uppercase tracking-wider shadow-sm">
                         Active Event
                       </div>
                     )}
 
                     {/* Venue tag */}
-                    <div className="absolute bottom-3 right-3 bg-slate-950/90 text-amber-300 px-2.5 py-1 rounded-lg text-[10px] font-mono border border-amber-500/30">
+                    <div className="absolute bottom-3 right-3 bg-slate-950/90 text-amber-300 px-2.5 py-1 rounded-lg text-[10px] font-mono border border-amber-500/30 shadow-sm">
                       {evt.venueType || 'In Person'}
                     </div>
                   </div>
                 ) : (
-                  <div className="hidden lg:flex lg:w-48 bg-slate-100 border-r border-slate-200 items-center justify-center p-4 text-center">
+                  <div className="hidden md:flex md:w-72 bg-slate-100 border-r border-slate-200 items-center justify-center p-4 text-center">
                     <Calendar className="w-10 h-10 text-slate-300" />
                   </div>
                 )}
@@ -427,18 +430,20 @@ export const EventsModule: React.FC<EventsModuleProps> = ({
                       )}
 
                     </div>
-
-                    {/* Blue Horizontal Divider Line */}
-                    <hr className="border-t-2 border-[#1E3A8A]/80 my-3" />
-
-                    {/* Always-visible Review & Comment Section matching Wireframe */}
-                    <div className="pt-1">
-                      <ClassReviewSection event={evt} variant="light" />
-                    </div>
                   </div>
 
                 </div>
 
+              </div>
+
+              {/* Blue Horizontal Divider Line */}
+              <div className="px-5 sm:px-7">
+                <hr className="border-t-2 border-[#1E3A8A]/80 my-1" />
+              </div>
+
+              {/* Always-visible Review & Comment Section spanning full card width */}
+              <div className="p-5 sm:p-7 pt-3 bg-slate-50/40">
+                <ClassReviewSection event={evt} variant="light" />
               </div>
 
             </div>

@@ -54,17 +54,15 @@ export const TableTalkModule: React.FC<TableTalkModuleProps> = ({
   const [isComposerExpanded, setIsComposerExpanded] = useState(false);
 
   // Host Input Form state
-  const [discussionTopic, setDiscussionTopic] = useState(
-    "Please put your comments on USTER Statistics (5% and 25%) for the Preparation of an USTER Report on 30 Ne Carded and Combed Yarn"
-  );
+  const [discussionTopic, setDiscussionTopic] = useState("");
   const [dueDate, setDueDate] = useState<string>(
     new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString().split('T')[0]
   );
   const [dueTime, setDueTime] = useState<string>("10:30");
   const [attachedFile, setAttachedFile] = useState<File | null>(null);
   const [capturedPhoto, setCapturedPhoto] = useState<File | null>(null);
-  const [hostName, setHostName] = useState<string>(currentUser?.name || "PGD Alumni Member");
-  const [hostRoll, setHostRoll] = useState<string>(currentUser?.rollNo || "PGD-FACULTY");
+  const [hostName, setHostName] = useState<string>(currentUser?.name || "");
+  const [hostRoll, setHostRoll] = useState<string>(currentUser?.rollNo || "");
   const [selectedMemberId, setSelectedMemberId] = useState<string>("");
   const [showMasterSelector, setShowMasterSelector] = useState<boolean>(false);
   const isMasterUser = Boolean(currentUser?.isMaster);
@@ -79,8 +77,8 @@ export const TableTalkModule: React.FC<TableTalkModuleProps> = ({
 
   // Participant Review Modal / Inline Form state
   const [activePostForReview, setActivePostForReview] = useState<string | null>(null);
-  const [reviewerName, setReviewerName] = useState<string>(currentUser?.name || "PGD Alumni Member");
-  const [reviewerRoll, setReviewerRoll] = useState<string>(currentUser?.rollNo || "PGD-FACULTY");
+  const [reviewerName, setReviewerName] = useState<string>(currentUser?.name || "");
+  const [reviewerRoll, setReviewerRoll] = useState<string>(currentUser?.rollNo || "");
   const [rating, setRating] = useState<number>(5);
   const [commentText, setCommentText] = useState<string>("");
   const [reviewSubmitting, setReviewSubmitting] = useState(false);
@@ -313,19 +311,30 @@ export const TableTalkModule: React.FC<TableTalkModuleProps> = ({
     setIsLoading(true);
     try {
       let loadedPosts: TableTalkPost[] = [];
+      let fetchedFromServer = false;
+
       try {
         const res = await fetch('/api/tabletalk');
         if (res.ok) {
           const json = await res.json();
-          if (json.data && Array.isArray(json.data) && json.data.length > 0) {
+          if (json.success && Array.isArray(json.data)) {
             loadedPosts = json.data;
+            fetchedFromServer = true;
           }
         }
       } catch (apiErr) {}
 
-      if (loadedPosts.length === 0) {
+      if (!fetchedFromServer) {
         loadedPosts = getInitialTableTalk();
       }
+
+      // Scrub any dummy posts or legacy placeholder items
+      loadedPosts = loadedPosts.filter(p => p.id !== 'TT-101' && !p.discussionTopic?.includes('USTER Statistics'));
+
+      // Keep localStorage in sync so deleted posts are never resurrected
+      try {
+        localStorage.setItem('butex_table_talk_posts', JSON.stringify(loadedPosts));
+      } catch (e) {}
 
       // Initialize authentic maps from loaded posts
       const likesMap: { [key: string]: number } = {};
@@ -340,7 +349,7 @@ export const TableTalkModule: React.FC<TableTalkModuleProps> = ({
       setPosts(loadedPosts);
     } catch (err) {
       console.error(err);
-      const fallback = getInitialTableTalk();
+      const fallback = getInitialTableTalk().filter(p => p.id !== 'TT-101' && !p.discussionTopic?.includes('USTER Statistics'));
       setPosts(fallback);
     } finally {
       setIsLoading(false);
@@ -349,7 +358,73 @@ export const TableTalkModule: React.FC<TableTalkModuleProps> = ({
 
   useEffect(() => {
     fetchPosts();
+
+    const handleSync = () => {
+      fetchPosts();
+    };
+    window.addEventListener('tabletalk-changed', handleSync);
+    return () => {
+      window.removeEventListener('tabletalk-changed', handleSync);
+    };
   }, []);
+
+  // Delete Table Talk Post (Instant & Persisted)
+  const handleDeletePost = async (postId: string) => {
+    if (!window.confirm("Are you sure you want to permanently delete this Table Talk discussion?")) return;
+    try {
+      // 1. Delete on server
+      try {
+        await fetch(`/api/tabletalk/${postId}`, { method: 'DELETE' });
+      } catch (e) {}
+
+      // 2. Remove from React state immediately
+      setPosts(prev => {
+        const updated = prev.filter(p => p.id !== postId);
+        try {
+          localStorage.setItem('butex_table_talk_posts', JSON.stringify(updated));
+        } catch (e) {}
+        return updated;
+      });
+
+      // 3. Dispatch event to sync with Admin panel
+      window.dispatchEvent(new CustomEvent('tabletalk-changed', { detail: { action: 'delete', postId } }));
+    } catch (err) {
+      console.error("Delete post error:", err);
+    }
+  };
+
+  // Delete Table Talk Comment (Instant & Persisted)
+  const handleDeleteComment = async (postId: string, reviewId: string) => {
+    if (!window.confirm("Are you sure you want to delete this comment?")) return;
+    try {
+      // 1. Delete on server
+      try {
+        await fetch(`/api/tabletalk/${postId}/reviews/${reviewId}`, { method: 'DELETE' });
+      } catch (e) {}
+
+      // 2. Remove from React state immediately
+      setPosts(prev => {
+        const updated = prev.map(p => {
+          if (p.id === postId) {
+            return {
+              ...p,
+              reviews: (p.reviews || []).filter(r => (r.id || '') !== reviewId)
+            };
+          }
+          return p;
+        });
+        try {
+          localStorage.setItem('butex_table_talk_posts', JSON.stringify(updated));
+        } catch (e) {}
+        return updated;
+      });
+
+      // 3. Dispatch event to sync
+      window.dispatchEvent(new CustomEvent('tabletalk-changed', { detail: { action: 'delete-comment', postId, reviewId } }));
+    } catch (err) {
+      console.error("Delete comment error:", err);
+    }
+  };
 
   // Update host name if currentUser changes
   useEffect(() => {
@@ -554,12 +629,17 @@ export const TableTalkModule: React.FC<TableTalkModuleProps> = ({
     "Supply Chain"
   ];
 
-  const facultySpeakers = [
-    { name: "Dr. Kamruzzaman", title: "Head of Textile Eng., BUTEX", topics: 14, status: "Active" },
-    { name: "Prof. Dr. Shah Alimuzzaman", title: "Dean & PGD Coordinator", topics: 8, status: "Active" },
-    { name: "Engr. Mahmudul Hasan", title: "Senior GM, Quality Assurance", topics: 11, status: "Active" },
-    { name: "Dr. Reazuddin Ahmed", title: "Associate Professor, Wet Processing", topics: 6, status: "Offline" },
-  ];
+  // Active Discussion Hosts derived dynamically from real posts
+  const activeHosts: { name: string; topicsCount: number; roll: string }[] = Array.from<string>(
+    new Set(posts.map(p => p.hostName).filter((name): name is string => Boolean(name)))
+  ).map((name: string) => {
+    const hostPosts = posts.filter(p => p.hostName === name);
+    return {
+      name,
+      topicsCount: hostPosts.length,
+      roll: hostPosts[0]?.hostRoll || "Host"
+    };
+  });
 
   // Filtered posts
   const filteredPosts = posts.filter(post => {
@@ -1046,15 +1126,25 @@ export const TableTalkModule: React.FC<TableTalkModuleProps> = ({
                           </div>
                         </div>
 
-                        <div className="flex items-center gap-3 text-xs text-slate-600 bg-slate-50 px-3.5 py-1.5 rounded-xl border border-slate-200">
-                          <div className="flex items-center gap-1 font-semibold text-slate-800">
-                            <Calendar className="w-3.5 h-3.5 text-[#002147]" />
-                            <span>Due: {post.dueDate}</span>
+                        <div className="flex items-center gap-2">
+                          <div className="flex items-center gap-3 text-xs text-slate-600 bg-slate-50 px-3.5 py-1.5 rounded-xl border border-slate-200">
+                            <div className="flex items-center gap-1 font-semibold text-slate-800">
+                              <Calendar className="w-3.5 h-3.5 text-[#002147]" />
+                              <span>Due: {post.dueDate}</span>
+                            </div>
+                            <div className="flex items-center gap-1 font-semibold text-slate-800">
+                              <Clock className="w-3.5 h-3.5 text-[#002147]" />
+                              <span>{post.dueTime}</span>
+                            </div>
                           </div>
-                          <div className="flex items-center gap-1 font-semibold text-slate-800">
-                            <Clock className="w-3.5 h-3.5 text-[#002147]" />
-                            <span>{post.dueTime}</span>
-                          </div>
+                          <button
+                            type="button"
+                            onClick={() => handleDeletePost(post.id)}
+                            className="p-1.5 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-lg transition-colors"
+                            title="Delete Discussion"
+                          >
+                            <Trash2 className="w-4 h-4" />
+                          </button>
                         </div>
                       </div>
 
@@ -1284,6 +1374,13 @@ export const TableTalkModule: React.FC<TableTalkModuleProps> = ({
                                       >
                                         Reply
                                       </button>
+                                      <button
+                                        type="button"
+                                        onClick={() => handleDeleteComment(post.id, rev.id || String(revIdx))}
+                                        className="hover:underline hover:text-rose-600 text-slate-400 font-normal"
+                                      >
+                                        Delete
+                                      </button>
                                       <span className="text-[10px] text-slate-400 font-normal">
                                         {getFormattedTimeAgo(rev.createdAt)}
                                       </span>
@@ -1392,30 +1489,37 @@ export const TableTalkModule: React.FC<TableTalkModuleProps> = ({
             <div className="flex items-center justify-between">
               <h3 className="text-sm font-bold text-[#002147] flex items-center gap-2">
                 <User className="w-4 h-4 text-[#FFBF00]" />
-                <span>Featured Hosts & Faculty</span>
+                <span>Discussion Hosts</span>
               </h3>
               <span className="text-[10px] text-slate-400 font-semibold">BUTEX PGD</span>
             </div>
 
             <div className="space-y-3">
-              {facultySpeakers.map((spk, idx) => (
-                <div key={idx} className="flex items-center justify-between p-2.5 bg-slate-50 hover:bg-slate-100/80 rounded-xl border border-slate-200/70 transition-all">
-                  <div className="flex items-center gap-2.5">
-                    <div className="w-8 h-8 rounded-full bg-[#002147] text-[#FFBF00] font-bold text-xs flex items-center justify-center">
-                      {spk.name.slice(0, 2).toUpperCase()}
+              {activeHosts.length > 0 ? (
+                activeHosts.map((host, idx) => (
+                  <div key={idx} className="flex items-center justify-between p-2.5 bg-slate-50 hover:bg-slate-100/80 rounded-xl border border-slate-200/70 transition-all">
+                    <div className="flex items-center gap-2.5">
+                      <div className="w-8 h-8 rounded-full bg-[#002147] text-[#FFBF00] font-bold text-xs flex items-center justify-center">
+                        {host.name.slice(0, 2).toUpperCase()}
+                      </div>
+                      <div>
+                        <h4 className="text-xs font-bold text-slate-800">{host.name}</h4>
+                        <p className="text-[10px] text-slate-500">{host.roll}</p>
+                      </div>
                     </div>
-                    <div>
-                      <h4 className="text-xs font-bold text-slate-800">{spk.name}</h4>
-                      <p className="text-[10px] text-slate-500">{spk.title}</p>
-                    </div>
+                    <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-blue-50 text-blue-700">
+                      {host.topicsCount} topic{host.topicsCount > 1 ? 's' : ''}
+                    </span>
                   </div>
-                  <span className={`px-2 py-0.5 rounded text-[10px] font-bold ${
-                    spk.status === 'Active' ? 'bg-emerald-100 text-emerald-700' : 'bg-slate-200 text-slate-600'
-                  }`}>
-                    {spk.status}
-                  </span>
+                ))
+              ) : (
+                <div className="p-3.5 bg-slate-50 rounded-xl border border-slate-200/70 text-center space-y-1">
+                  <p className="text-xs font-semibold text-slate-700">No active discussion hosts</p>
+                  <p className="text-[10px] text-slate-400">
+                    Alumni and faculty members will appear here once they initiate a topic.
+                  </p>
                 </div>
-              ))}
+              )}
             </div>
           </div>
 

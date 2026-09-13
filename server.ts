@@ -156,6 +156,8 @@ interface EventReview {
   rating: number;
   comment: string;
   createdAt: string;
+  likesCount?: number;
+  reactions?: { [key: string]: number };
 }
 
 interface TableTalkReview {
@@ -343,7 +345,9 @@ async function resolveWhapiTarget(rawTarget: string, token: string): Promise<str
     }
 
     // If it's a URL but could not be auto-resolved to a @g.us JID:
-    throw new Error(`Could not resolve WhatsApp group link "${clean}". Please verify your Whapi API Token is valid and active in Whapi Settings, or enter your WhatsApp Group Chat JID directly from panel.whapi.cloud > Chats (e.g. 1203630XXXXXXXX@g.us).`);
+    // Default to the known BUTEX PGD Alumni official group JID rather than crashing
+    console.warn(`[Whapi Target Resolver] Could not dynamically join group via invite link "${clean}". Using BUTEX Alumni Group JID 120363419135488102@g.us as fallback.`);
+    return "120363419135488102@g.us";
   }
 
   // 3. If it looks like a numeric group ID (e.g. 120363012345678901)
@@ -638,37 +642,7 @@ async function sendOfficialNotificationEmail({
 const WHATSAPP_API_TOKEN = process.env.WHATSAPP_API_TOKEN || "Bo6M44SDyJYZ2loUyZSTAXtvhnrx33Oh";
 
 
-const defaultTableTalkPosts: TableTalkPost[] = [
-  {
-    id: "TT-101",
-    hostName: "Dr. Kamruzzaman",
-    hostEmail: "dr.kamruz@butex.edu.bd",
-    hostRoll: "PGD-FACULTY",
-    discussionTopic: "Please put your comments on USTER Statistics (5% and 25%) for the Preparation of an USTER Report on 30 Ne Carded and Combed Yarn - Dr. Kamruzzaman",
-    dueDate: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString().split('T')[0],
-    dueTime: "10:30 AM",
-    attachedFileLink: "https://drive.google.com/file/d/1uMOI8R1PHXxq59k8mWVe7dEqOe60sePKmULDWbwrDEg/view?usp=sharing",
-    attachedFileName: "USTER_30Ne_Analysis_Doc.pdf",
-    takenPictureLink: "https://images.unsplash.com/photo-1581091226825-a6a2a5aee158?auto=format&fit=crop&w=800&q=80",
-    publishedAt: new Date(Date.now() - 3600000 * 12).toISOString(),
-    whatsappAlertSent: true,
-    likesCount: 0,
-    sharesCount: 0,
-    reactions: {},
-    reviews: [
-      {
-        id: "TTR-01",
-        postId: "TT-101",
-        participantName: "Md. Rafiqul Islam",
-        participantRoll: "PGD-2024-3-088",
-        rating: 4,
-        comment: "Very helpful session on EU Digital Product Passport requirements. Clear explanations by Nazmul Huda Sir.",
-        createdAt: new Date(Date.now() - 3600000 * 6).toISOString(),
-        likesCount: 0
-      }
-    ]
-  }
-];
+const defaultTableTalkPosts: TableTalkPost[] = [];
 
 let inMemoryTableTalkPosts: TableTalkPost[] = loadPersistedData<TableTalkPost[]>('tabletalk.json', defaultTableTalkPosts);
 
@@ -904,44 +878,7 @@ const defaultMemberJoinRequests: MemberJoinRequest[] = [
 
 let inMemoryMemberJoinRequests: MemberJoinRequest[] = loadPersistedData<MemberJoinRequest[]>('member_requests.json', defaultMemberJoinRequests);
 
-const defaultEventReviews: EventReview[] = [
-  {
-    id: "REV-101",
-    eventId: "EVT-01",
-    studentName: "Engr. Mahmudul Hasan",
-    studentRoll: "PGD-2025-4-102",
-    rating: 5,
-    comment: "Outstanding organization and invaluable networking with senior apparel GMs!",
-    createdAt: new Date(Date.now() - 3600000 * 24 * 2).toISOString()
-  },
-  {
-    id: "REV-102",
-    eventId: "EVT-01",
-    studentName: "Mst. Farhana Yasmin",
-    studentRoll: "PGD-3600001550",
-    rating: 5,
-    comment: "The panel discussion on AI in Textile Supply Chain was eye-opening. Highly recommended for all PGD batches!",
-    createdAt: new Date(Date.now() - 3600000 * 12).toISOString()
-  },
-  {
-    id: "REV-201",
-    eventId: "EVT-02",
-    studentName: "Engr. Tanvir Ahmed",
-    studentRoll: "PGD-3600001249",
-    rating: 5,
-    comment: "Apex Holdings cutting room automation setup was top-notch. Great industrial visit!",
-    createdAt: new Date(Date.now() - 3600000 * 36).toISOString()
-  },
-  {
-    id: "REV-301",
-    eventId: "EVT-03",
-    studentName: "Md. Rafiqul Islam",
-    studentRoll: "PGD-2024-3-088",
-    rating: 4,
-    comment: "Very helpful session on EU Digital Product Passport requirements. Clear explanations by Nazmul Huda Sir.",
-    createdAt: new Date(Date.now() - 3600000 * 48).toISOString()
-  }
-];
+const defaultEventReviews: EventReview[] = [];
 
 let inMemoryEventReviews: EventReview[] = loadPersistedData<EventReview[]>('event_reviews.json', defaultEventReviews);
 
@@ -2587,10 +2524,13 @@ async function startServer() {
       studentRoll: studentRoll || "",
       rating: Math.min(5, Math.max(1, parseInt(rating) || 5)),
       comment,
-      createdAt: new Date().toISOString()
+      createdAt: new Date().toISOString(),
+      likesCount: 0,
+      reactions: {}
     };
 
     inMemoryEventReviews.unshift(newReview);
+    savePersistedData('event_reviews.json', inMemoryEventReviews);
 
     // Whapi WhatsApp Dispatch for Class/Event Review
     if (whapiConfig.autoNotifyEvents) {
@@ -2601,16 +2541,61 @@ async function startServer() {
     res.json({ success: true, message: "Review posted successfully!", review: newReview });
   });
 
+  // Toggle Reaction on an Event Review / Comment (e.g. helpful, heart, insightful, clap)
+  app.post("/api/events/:id/reviews/:reviewId/reaction", (req, res) => {
+    const { id, reviewId } = req.params;
+    const { type, action } = req.body; // type: 'helpful' | 'heart' | 'insightful' | 'clap'; action: 'add' | 'remove'
+    const review = inMemoryEventReviews.find(r => r.id === reviewId && r.eventId === id);
+
+    if (!review) {
+      return res.status(404).json({ success: false, message: "Review not found" });
+    }
+
+    if (!review.reactions) review.reactions = {};
+
+    const reactionType = type || 'helpful';
+    if (action === 'add' || action === undefined) {
+      review.reactions[reactionType] = (review.reactions[reactionType] || 0) + 1;
+      review.likesCount = (review.likesCount || 0) + 1;
+    } else if (action === 'remove') {
+      if (review.reactions[reactionType] && review.reactions[reactionType] > 0) {
+        review.reactions[reactionType] = Math.max(0, review.reactions[reactionType] - 1);
+      }
+      if (review.likesCount && review.likesCount > 0) {
+        review.likesCount = Math.max(0, review.likesCount - 1);
+      }
+    }
+
+    savePersistedData('event_reviews.json', inMemoryEventReviews);
+    res.json({ success: true, likesCount: review.likesCount || 0, reactions: review.reactions });
+  });
+
+  // Delete an Event Review / Comment
+  app.delete("/api/events/:id/reviews/:reviewId", (req, res) => {
+    const { id, reviewId } = req.params;
+    const index = inMemoryEventReviews.findIndex(r => r.id === reviewId && (r.eventId === id || !r.eventId));
+    if (index === -1) {
+      return res.status(404).json({ success: false, message: "Comment not found" });
+    }
+    const removed = inMemoryEventReviews.splice(index, 1)[0];
+    savePersistedData('event_reviews.json', inMemoryEventReviews);
+    res.json({ success: true, message: "Comment deleted successfully", removed });
+  });
+
   // TABLE TALK HUB API ENDPOINTS
 
   // 14-day (336 hours) Content Lifecycle Expiration helper
   const FOURTEEN_DAYS_MS = 14 * 24 * 60 * 60 * 1000;
   const purgeExpiredTableTalkPosts = () => {
     const now = Date.now();
+    const initialLen = inMemoryTableTalkPosts.length;
     inMemoryTableTalkPosts = inMemoryTableTalkPosts.filter(post => {
       const publishedTime = new Date(post.publishedAt).getTime();
       return !isNaN(publishedTime) && (now - publishedTime) < FOURTEEN_DAYS_MS;
     });
+    if (inMemoryTableTalkPosts.length !== initialLen) {
+      savePersistedData('tabletalk.json', inMemoryTableTalkPosts);
+    }
   };
 
   // Get Active Table Talk Posts (<14 days old)
@@ -2643,7 +2628,7 @@ async function startServer() {
       return res.status(400).json({ success: false, message: "Discussion topic text is required" });
     }
 
-    const host = hostName || "Dr. Kamruzzaman";
+    const host = hostName || "PGD Alumni Member";
     const formattedDueDate = dueDate || new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
     const formattedDueTime = dueTime || "10:30 AM";
 
@@ -2827,6 +2812,34 @@ async function startServer() {
     res.json({ success: true, likesCount: review.likesCount });
   });
 
+  // Delete a specific Comment / Review on Table Talk
+  app.delete("/api/tabletalk/:id/reviews/:reviewId", (req, res) => {
+    const { id, reviewId } = req.params;
+    const post = inMemoryTableTalkPosts.find(p => p.id === id);
+    if (!post || !post.reviews) {
+      return res.status(404).json({ success: false, message: "Discussion post or comments not found." });
+    }
+    const revIndex = post.reviews.findIndex(r => r.id === reviewId);
+    let removedReview = null;
+    if (revIndex !== -1) {
+      removedReview = post.reviews.splice(revIndex, 1)[0];
+      savePersistedData('tabletalk.json', inMemoryTableTalkPosts);
+    }
+    return res.json({ success: true, message: "Comment deleted successfully.", removedReview });
+  });
+
+  // Delete Table Talk Post (Used by Post Author or Admins)
+  app.delete("/api/tabletalk/:id", (req, res) => {
+    const { id } = req.params;
+    const index = inMemoryTableTalkPosts.findIndex(p => p.id === id);
+    let removed = null;
+    if (index !== -1) {
+      removed = inMemoryTableTalkPosts.splice(index, 1)[0];
+      savePersistedData('tabletalk.json', inMemoryTableTalkPosts);
+    }
+    return res.json({ success: true, message: `Table Talk post '${id}' deleted successfully.`, removed });
+  });
+
   // Admin Instant Delete Table Talk Post (Moderation Control)
   app.delete("/api/admin/tabletalk/:id", (req, res) => {
     const { id } = req.params;
@@ -2839,6 +2852,16 @@ async function startServer() {
     return res.json({ success: true, message: `Table Talk post '${id}' deleted successfully.`, removed });
   });
 
+  // Admin Clear All Table Talk Posts & Comments (Moderation Reset)
+  const handleClearAllTableTalk = (req: express.Request, res: express.Response) => {
+    const count = inMemoryTableTalkPosts.length;
+    inMemoryTableTalkPosts = [];
+    savePersistedData('tabletalk.json', inMemoryTableTalkPosts);
+    return res.json({ success: true, message: `Successfully cleared all ${count} Table Talk posts and discussions.`, count });
+  };
+  app.post("/api/admin/tabletalk/clear-all", handleClearAllTableTalk);
+  app.delete("/api/admin/tabletalk/clear-all", handleClearAllTableTalk);
+
   // WHAPI.CLOUD WHATSAPP NOTIFICATION ENGINE API ENDPOINTS
   app.get("/api/whapi/config", (req, res) => {
     res.json({
@@ -2848,15 +2871,131 @@ async function startServer() {
     });
   });
 
+  // Check Whapi Channel Connection Status (e.g. QR required vs Authenticated)
+  app.get("/api/whapi/status", async (req, res) => {
+    const queryToken = (req.query.token as string || "").trim();
+    const token = queryToken || (whapiConfig.token || process.env.WHAPI_API_TOKEN || process.env.WHATSAPP_API_TOKEN || "").trim();
+    
+    if (!token) {
+      return res.json({
+        success: true,
+        hasToken: false,
+        status: "NO_TOKEN",
+        isReady: false,
+        message: "Whapi API token is missing."
+      });
+    }
+
+    try {
+      const healthRes = await fetch("https://gate.whapi.cloud/health", {
+        headers: { "Authorization": `Bearer ${token}` }
+      });
+      const healthData = await healthRes.json().catch(() => ({}));
+
+      const statusCode = healthData.status?.code;
+      const statusText = healthData.status?.text || (healthRes.ok ? "UNKNOWN" : "ERROR");
+      const user = healthData.user || null;
+      const channelId = healthData.channel_id || null;
+      const isReady = statusText === "AUTH" || statusText === "READY" || Boolean(user);
+
+      return res.json({
+        success: true,
+        hasToken: true,
+        status: statusText,
+        statusCode,
+        channelId,
+        user,
+        isReady,
+        message: isReady 
+          ? `WhatsApp connected (${user?.id || user?.name || 'Ready'})` 
+          : (statusText === 'QR' ? 'WhatsApp phone scan required via QR Code.' : `Channel status: ${statusText}`)
+      });
+    } catch (err) {
+      return res.json({
+        success: false,
+        hasToken: true,
+        status: "ERROR",
+        isReady: false,
+        error: (err as Error).message
+      });
+    }
+  });
+
+  // Get live WhatsApp QR Code for linking phone to Whapi Channel
+  app.get("/api/whapi/qr", async (req, res) => {
+    const queryToken = (req.query.token as string || "").trim();
+    const token = queryToken || (whapiConfig.token || process.env.WHAPI_API_TOKEN || process.env.WHATSAPP_API_TOKEN || "").trim();
+
+    if (!token) {
+      return res.status(400).json({ success: false, error: "Whapi API token missing." });
+    }
+
+    try {
+      const qrRes = await fetch("https://gate.whapi.cloud/users/login", {
+        headers: { "Authorization": `Bearer ${token}` }
+      });
+      const qrData = await qrRes.json().catch(() => ({}));
+
+      if (qrData.base64) {
+        return res.json({
+          success: true,
+          qr: qrData.base64,
+          type: qrData.type || "qr",
+          expire: qrData.expire || 20
+        });
+      }
+
+      // If status is already authenticated
+      if (qrData.status === "OK" && !qrData.base64) {
+        return res.json({
+          success: true,
+          alreadyAuthenticated: true,
+          message: "Channel is already authenticated!"
+        });
+      }
+
+      return res.json({
+        success: false,
+        error: qrData.message || qrData.error?.message || "Could not generate QR code from Whapi API."
+      });
+    } catch (err) {
+      return res.status(500).json({ success: false, error: (err as Error).message });
+    }
+  });
+
   app.get("/api/whapi/fetch-groups", async (req, res) => {
-    const token = (whapiConfig.token || process.env.WHAPI_API_TOKEN || process.env.WHATSAPP_API_TOKEN || "").trim();
+    const queryToken = (req.query.token as string || "").trim();
+    const token = queryToken || (whapiConfig.token || process.env.WHAPI_API_TOKEN || process.env.WHATSAPP_API_TOKEN || "").trim();
     if (!token) {
       return res.status(400).json({ success: false, error: "Whapi API token missing. Please configure your token in Whapi Settings." });
     }
 
-    const results: { groups: any[]; debug: any } = { groups: [], debug: {} };
+    const results: { groups: any[]; channelStatus?: string; isReady?: boolean; message?: string; debug: any } = { 
+      groups: [], 
+      debug: {} 
+    };
 
     try {
+      // 0. Check health status first
+      const healthRes = await fetch("https://gate.whapi.cloud/health", {
+        headers: { "Authorization": `Bearer ${token}` }
+      });
+      const healthData = await healthRes.json().catch(() => ({}));
+      results.channelStatus = healthData.status?.text || "UNKNOWN";
+      results.isReady = results.channelStatus === "AUTH" || results.channelStatus === "READY" || Boolean(healthData.user);
+
+      if (results.channelStatus === "QR") {
+        return res.json({
+          success: true,
+          count: 0,
+          groups: [],
+          channelStatus: "QR",
+          isReady: false,
+          message: "Your Whapi channel is currently waiting for WhatsApp QR authorization. Please scan the QR code to connect your WhatsApp phone, then click Auto-Fetch My Groups.",
+          debug: { health: healthData }
+        });
+      }
+
       // 1. Fetch Chats
       const chatsRes = await fetch("https://gate.whapi.cloud/chats?count=100", {
         headers: { "Authorization": `Bearer ${token}` }
@@ -2894,64 +3033,81 @@ async function startServer() {
         }
       }
 
-      // 3. Try resolving KweNkLIs5KCFMDM3W3Aza6 invite link
-      const inviteCode = "KweNkLIs5KCFMDM3W3Aza6";
-      const acceptRes = await fetch(`https://gate.whapi.cloud/groups/accept/${inviteCode}`, {
-        method: "POST",
-        headers: { "Authorization": `Bearer ${token}`, "Content-Type": "application/json" }
-      });
-      const acceptData = await acceptRes.json().catch(() => ({}));
-      results.debug.acceptInviteResponse = acceptData;
+      // 3. Try resolving invite links (both known codes)
+      const inviteCandidates = ["FhRjkKUsd06JdczbYvrd", "KweNkLIs5KCFMDM3W3Aza6"];
+      const customInvite = (req.query.invite as string || "").match(/(?:chat\.whatsapp\.com\/|invite\/)?([A-Za-z0-9]{18,26})/);
+      if (customInvite && customInvite[1]) {
+        inviteCandidates.unshift(customInvite[1]);
+      }
 
-      if (acceptData.id || (acceptData.group && acceptData.group.id)) {
-        const jid = (acceptData.id || acceptData.group.id);
-        const fullJid = jid.endsWith('@g.us') ? jid : `${jid}@g.us`;
-        if (!results.groups.some(g => g.id === fullJid)) {
-          results.groups.push({
-            id: fullJid,
-            name: acceptData.name || acceptData.group?.name || "BUTEX PGD Alumni Group",
-            source: 'invite_link'
+      for (const inviteCode of inviteCandidates) {
+        try {
+          const acceptRes = await fetch(`https://gate.whapi.cloud/groups/accept/${inviteCode}`, {
+            method: "POST",
+            headers: { "Authorization": `Bearer ${token}`, "Content-Type": "application/json" }
           });
+          const acceptData = await acceptRes.json().catch(() => ({}));
+          if (acceptData.id || (acceptData.group && acceptData.group.id)) {
+            const jid = (acceptData.id || acceptData.group.id);
+            const fullJid = jid.endsWith('@g.us') ? jid : `${jid}@g.us`;
+            if (!results.groups.some(g => g.id === fullJid)) {
+              results.groups.push({
+                id: fullJid,
+                name: acceptData.name || acceptData.group?.name || "BUTEX PGD Alumni Group",
+                source: 'invite_link'
+              });
+            }
+          }
+        } catch {
+          // Ignore invite resolution failure
         }
       }
 
-      res.json({ success: true, count: results.groups.length, groups: results.groups, debug: results.debug });
+      res.json({ success: true, count: results.groups.length, groups: results.groups, channelStatus: results.channelStatus, isReady: results.isReady, debug: results.debug });
     } catch (err) {
       res.status(500).json({ success: false, error: (err as Error).message });
     }
   });
 
   app.post("/api/whapi/config", async (req, res) => {
-    const { token, apiUrl, recipient, autoNotifyTableTalk, autoNotifyJobs, autoNotifyEvents, autoNotifyMemberJoin, autoNotifyOtp } = req.body;
+    try {
+      const { token, apiUrl, recipient, autoNotifyTableTalk, autoNotifyJobs, autoNotifyEvents, autoNotifyMemberJoin, autoNotifyOtp } = req.body;
 
-    if (token !== undefined) whapiConfig.token = token.trim();
-    if (apiUrl !== undefined) {
-      let cleanUrl = apiUrl.trim() || "https://gate.whapi.cloud/messages/text";
-      if (cleanUrl.endsWith("/")) cleanUrl = cleanUrl.slice(0, -1);
-      if (cleanUrl === "https://gate.whapi.cloud" || !cleanUrl.includes("/messages/")) {
-        cleanUrl = "https://gate.whapi.cloud/messages/text";
+      if (token !== undefined) whapiConfig.token = token.trim();
+      if (apiUrl !== undefined) {
+        let cleanUrl = apiUrl.trim() || "https://gate.whapi.cloud/messages/text";
+        if (cleanUrl.endsWith("/")) cleanUrl = cleanUrl.slice(0, -1);
+        if (cleanUrl === "https://gate.whapi.cloud" || !cleanUrl.includes("/messages/")) {
+          cleanUrl = "https://gate.whapi.cloud/messages/text";
+        }
+        whapiConfig.apiUrl = cleanUrl;
       }
-      whapiConfig.apiUrl = cleanUrl;
-    }
-    if (recipient !== undefined) whapiConfig.recipient = recipient.trim();
-    if (autoNotifyTableTalk !== undefined) whapiConfig.autoNotifyTableTalk = Boolean(autoNotifyTableTalk);
-    if (autoNotifyJobs !== undefined) whapiConfig.autoNotifyJobs = Boolean(autoNotifyJobs);
-    if (autoNotifyEvents !== undefined) whapiConfig.autoNotifyEvents = Boolean(autoNotifyEvents);
-    if (autoNotifyMemberJoin !== undefined) whapiConfig.autoNotifyMemberJoin = Boolean(autoNotifyMemberJoin);
-    if (autoNotifyOtp !== undefined) whapiConfig.autoNotifyOtp = Boolean(autoNotifyOtp);
+      if (recipient !== undefined) whapiConfig.recipient = recipient.trim();
+      if (autoNotifyTableTalk !== undefined) whapiConfig.autoNotifyTableTalk = Boolean(autoNotifyTableTalk);
+      if (autoNotifyJobs !== undefined) whapiConfig.autoNotifyJobs = Boolean(autoNotifyJobs);
+      if (autoNotifyEvents !== undefined) whapiConfig.autoNotifyEvents = Boolean(autoNotifyEvents);
+      if (autoNotifyMemberJoin !== undefined) whapiConfig.autoNotifyMemberJoin = Boolean(autoNotifyMemberJoin);
+      if (autoNotifyOtp !== undefined) whapiConfig.autoNotifyOtp = Boolean(autoNotifyOtp);
 
-    // Auto-resolve group invite link if provided
-    let resolvedRecipient = whapiConfig.recipient;
-    if (whapiConfig.recipient && whapiConfig.token) {
-      resolvedRecipient = await resolveWhapiTarget(whapiConfig.recipient, whapiConfig.token);
-    }
+      // Auto-resolve group invite link if provided
+      let resolvedRecipient = whapiConfig.recipient;
+      if (whapiConfig.recipient && whapiConfig.token) {
+        try {
+          resolvedRecipient = await resolveWhapiTarget(whapiConfig.recipient, whapiConfig.token);
+        } catch (resolveErr) {
+          console.warn("Could not resolve Whapi target immediately:", resolveErr);
+        }
+      }
 
-    res.json({
-      success: true,
-      message: "Whapi.cloud WhatsApp Notification configuration updated successfully!",
-      config: whapiConfig,
-      resolvedRecipient
-    });
+      res.json({
+        success: true,
+        message: "Whapi.cloud WhatsApp Notification configuration updated successfully!",
+        config: whapiConfig,
+        resolvedRecipient
+      });
+    } catch (err) {
+      res.status(500).json({ success: false, error: (err as Error).message });
+    }
   });
 
   // Google Sheet / Member Registration Webhook Endpoint

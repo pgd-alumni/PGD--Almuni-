@@ -15,7 +15,8 @@ import {
   Trash2,
   HelpCircle,
   Smartphone,
-  AlertTriangle
+  AlertTriangle,
+  QrCode
 } from 'lucide-react';
 
 export interface WhapiLog {
@@ -39,16 +40,6 @@ export interface WhapiConfigState {
   autoNotifyOtp: boolean;
 }
 
-export interface WhapiLog {
-  id: string;
-  timestamp: string;
-  to: string;
-  message: string;
-  status: 'Sent' | 'Failed';
-  statusCode?: number;
-  responseMsg?: string;
-}
-
 export const WhapiSettingsModule: React.FC = () => {
   const [config, setConfig] = useState<WhapiConfigState>({
     token: '',
@@ -66,6 +57,27 @@ export const WhapiSettingsModule: React.FC = () => {
   const [loading, setLoading] = useState(false);
   const [saveStatus, setSaveStatus] = useState<string | null>(null);
 
+  // Channel health & real WhatsApp connection status
+  const [channelStatus, setChannelStatus] = useState<{
+    hasToken: boolean;
+    status: string;
+    statusCode?: number;
+    channelId?: string | null;
+    user?: { id?: string; name?: string } | null;
+    isReady: boolean;
+    message?: string;
+    loading: boolean;
+  }>({
+    hasToken: false,
+    status: 'CHECKING',
+    isReady: false,
+    loading: true
+  });
+
+  const [qrImage, setQrImage] = useState<string | null>(null);
+  const [qrLoading, setQrLoading] = useState(false);
+  const [showQrCard, setShowQrCard] = useState(false);
+
   // Test message state
   const [testRecipient, setTestRecipient] = useState('');
   const [testMessage, setTestMessage] = useState('Hello! This is a test notification from BUTEX PGD Alumni Portal via Whapi.cloud WhatsApp API.');
@@ -81,19 +93,78 @@ export const WhapiSettingsModule: React.FC = () => {
   const [logs, setLogs] = useState<WhapiLog[]>([]);
   const [logsLoading, setLogsLoading] = useState(false);
 
-  const handleFetchGroups = () => {
+  const fetchChannelStatus = (tokenOverride?: string) => {
+    const tokenToUse = (tokenOverride !== undefined ? tokenOverride : config.token || '').trim();
+    if (!tokenToUse) {
+      setChannelStatus({
+        hasToken: false,
+        status: 'NO_TOKEN',
+        isReady: false,
+        loading: false,
+        message: 'Whapi Token Required'
+      });
+      return;
+    }
+    setChannelStatus(prev => ({ ...prev, loading: true }));
+    fetch(`/api/whapi/status?token=${encodeURIComponent(tokenToUse)}`)
+      .then(res => res.json())
+      .then(data => {
+        if (data.success) {
+          setChannelStatus({
+            hasToken: data.hasToken,
+            status: data.status,
+            statusCode: data.statusCode,
+            channelId: data.channelId,
+            user: data.user,
+            isReady: Boolean(data.isReady),
+            message: data.message,
+            loading: false
+          });
+          if (data.status === 'QR' && !data.isReady) {
+            setShowQrCard(true);
+            fetchQrCode(tokenToUse);
+          }
+        } else {
+          setChannelStatus(prev => ({ ...prev, loading: false }));
+        }
+      })
+      .catch(() => setChannelStatus(prev => ({ ...prev, loading: false })));
+  };
+
+  const fetchQrCode = (tokenOverride?: string) => {
+    const tokenToUse = (tokenOverride !== undefined ? tokenOverride : config.token || '').trim();
+    if (!tokenToUse) return;
+    setQrLoading(true);
+    fetch(`/api/whapi/qr?token=${encodeURIComponent(tokenToUse)}`)
+      .then(res => res.json())
+      .then(data => {
+        if (data.success && data.qr) {
+          setQrImage(data.qr);
+        }
+      })
+      .catch(err => console.error('Error fetching QR:', err))
+      .finally(() => setQrLoading(false));
+  };
+
+  const handleFetchGroups = (tokenOverride?: string) => {
     setFetchingGroups(true);
     setGroupsError(null);
-    fetch('/api/whapi/fetch-groups')
+    const tokenToUse = (tokenOverride !== undefined ? tokenOverride : config.token || '').trim();
+    const inviteToUse = (config.recipient || '').trim();
+    fetch(`/api/whapi/fetch-groups?token=${encodeURIComponent(tokenToUse)}&invite=${encodeURIComponent(inviteToUse)}`)
       .then(async res => {
         if (!res.ok) throw new Error(`HTTP ${res.status}`);
         return res.json();
       })
       .then(data => {
-        if (data.success && Array.isArray(data.groups)) {
+        if (data.channelStatus === 'QR' || data.isReady === false) {
+          setGroupsError("⚠️ Your Whapi channel is waiting for WhatsApp QR authorization. Please scan the QR Code above to link your WhatsApp phone, then click Auto-Fetch My Groups.");
+          setShowQrCard(true);
+          fetchQrCode(tokenToUse);
+        } else if (data.success && Array.isArray(data.groups)) {
           setFetchedGroups(data.groups);
           if (data.groups.length === 0) {
-            setGroupsError("No WhatsApp groups found for this channel. Make sure your Whapi phone number is a member in your target group!");
+            setGroupsError("No WhatsApp groups found for this channel. Make sure your Whapi phone number has joined your target WhatsApp group!");
           }
         } else {
           setGroupsError(data.error || "Failed to fetch groups from Whapi");
@@ -112,14 +183,14 @@ export const WhapiSettingsModule: React.FC = () => {
       })
       .then(data => {
         if (data.success && data.config) {
-          const loadedRecipient = data.config.recipient || '';
-          const finalRecipient = (!loadedRecipient || loadedRecipient.includes('chat.whatsapp.com')) 
-            ? '120363419135488102@g.us' 
-            : loadedRecipient;
-            
-          setConfig({ ...data.config, recipient: finalRecipient });
+          const loadedRecipient = data.config.recipient || '120363419135488102@g.us';
+          setConfig({ ...data.config, recipient: loadedRecipient });
           setHasToken(data.hasToken || Boolean(data.config.token));
-          setTestRecipient(finalRecipient);
+          setTestRecipient(loadedRecipient);
+          if (data.config.token) {
+            fetchChannelStatus(data.config.token);
+            handleFetchGroups(data.config.token);
+          }
         }
       })
       .catch(err => console.error('Error loading Whapi config:', err))
@@ -145,7 +216,6 @@ export const WhapiSettingsModule: React.FC = () => {
   useEffect(() => {
     fetchConfig();
     fetchLogs();
-    handleFetchGroups();
   }, []);
 
   const handleSaveConfig = (e: React.FormEvent) => {
@@ -172,6 +242,8 @@ export const WhapiSettingsModule: React.FC = () => {
         if (data.success) {
           setSaveStatus('✓ Whapi.cloud WhatsApp configuration saved successfully!');
           setHasToken(Boolean(config.token));
+          fetchChannelStatus(updatedConfig.token);
+          handleFetchGroups(updatedConfig.token);
           setTimeout(() => setSaveStatus(null), 4000);
         } else {
           setSaveStatus(`❌ Error saving config: ${data.message || 'Unknown error'}`);
@@ -273,40 +345,159 @@ export const WhapiSettingsModule: React.FC = () => {
         {/* Left Column: Config Form (2 cols) */}
         <div className="lg:col-span-2 space-y-8">
           <div className="bg-white rounded-3xl p-6 sm:p-8 border border-slate-200 shadow-sm space-y-6">
-            <div className="flex items-center justify-between border-b border-slate-100 pb-4">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between border-b border-slate-100 pb-4 gap-3">
               <div className="flex items-center space-x-3">
                 <div className="w-10 h-10 rounded-xl bg-emerald-100 text-emerald-700 flex items-center justify-center font-bold">
                   <Key className="w-5 h-5" />
                 </div>
                 <div>
                   <h3 className="text-base font-extrabold text-slate-900">Whapi Channel Credentials</h3>
-                  <p className="text-xs text-slate-500">Provided by panel.whapi.cloud dashboard</p>
+                  <p className="text-xs text-slate-500">Live WhatsApp Gateway status from panel.whapi.cloud</p>
                 </div>
               </div>
               
-              <div className={`px-3 py-1 rounded-full text-[11px] font-extrabold flex items-center space-x-1 ${
-                hasToken ? 'bg-emerald-100 text-emerald-800' : 'bg-amber-100 text-amber-800'
-              }`}>
-                {hasToken ? <CheckCircle2 className="w-3.5 h-3.5" /> : <XCircle className="w-3.5 h-3.5" />}
-                <span>{hasToken ? 'Channel Ready' : 'Token Needed'}</span>
+              <div className="flex items-center space-x-2">
+                {channelStatus.loading ? (
+                  <div className="px-3 py-1 rounded-full text-[11px] font-extrabold bg-slate-100 text-slate-600 flex items-center space-x-1.5 border border-slate-200">
+                    <RefreshCw className="w-3 h-3 animate-spin text-slate-500" />
+                    <span>Checking Status...</span>
+                  </div>
+                ) : !hasToken && !config.token ? (
+                  <div className="px-3 py-1 rounded-full text-[11px] font-extrabold bg-amber-100 text-amber-800 flex items-center space-x-1.5 border border-amber-200">
+                    <XCircle className="w-3.5 h-3.5" />
+                    <span>Token Needed</span>
+                  </div>
+                ) : channelStatus.isReady ? (
+                  <div className="px-3 py-1 rounded-full text-[11px] font-extrabold bg-emerald-100 text-emerald-800 flex items-center space-x-1.5 border border-emerald-300 shadow-sm">
+                    <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" />
+                    <span>WhatsApp Connected {channelStatus.user?.id ? `(+${channelStatus.user.id})` : ''}</span>
+                  </div>
+                ) : (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setShowQrCard(true);
+                      fetchQrCode();
+                    }}
+                    className="px-3 py-1 rounded-full text-[11px] font-extrabold bg-amber-100 hover:bg-amber-200 text-amber-900 flex items-center space-x-1.5 border border-amber-300 transition-all cursor-pointer shadow-sm animate-pulse"
+                  >
+                    <QrCode className="w-3.5 h-3.5 text-amber-700" />
+                    <span>Scan QR Code Required</span>
+                  </button>
+                )}
               </div>
             </div>
+
+            {/* LIVE WHATSAPP QR CODE SCANNING CARD */}
+            {(showQrCard || (!channelStatus.isReady && (config.token || hasToken))) && (
+              <div className="p-5 bg-gradient-to-br from-amber-50 via-orange-50/40 to-emerald-50/30 rounded-2xl border-2 border-amber-300 shadow-md space-y-4">
+                <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
+                  <div className="flex items-center space-x-3">
+                    <div className="w-9 h-9 rounded-xl bg-amber-500 text-white flex items-center justify-center font-bold shadow-sm">
+                      <QrCode className="w-5 h-5" />
+                    </div>
+                    <div>
+                      <h4 className="text-sm font-extrabold text-amber-950">Link WhatsApp Phone to Whapi Channel</h4>
+                      <p className="text-[11px] text-amber-800">
+                        Channel: <span className="font-mono font-bold text-amber-950">{channelStatus.channelId || 'SPDRMN-DZWZF'}</span> &bull; Status: <span className="font-bold text-amber-700 uppercase">{channelStatus.status || 'QR Mode'}</span>
+                      </p>
+                    </div>
+                  </div>
+                  <div className="flex items-center space-x-2">
+                    <button
+                      type="button"
+                      onClick={() => fetchQrCode()}
+                      disabled={qrLoading}
+                      className="px-3 py-1.5 rounded-xl bg-white border border-amber-300 hover:bg-amber-100 text-amber-900 text-xs font-bold transition-all flex items-center space-x-1.5 shadow-sm"
+                    >
+                      <RefreshCw className={`w-3.5 h-3.5 ${qrLoading ? 'animate-spin' : ''}`} />
+                      <span>Refresh QR</span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        fetchChannelStatus();
+                        handleFetchGroups();
+                      }}
+                      className="px-3 py-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold transition-all flex items-center space-x-1.5 shadow-sm cursor-pointer"
+                    >
+                      <CheckCircle2 className="w-3.5 h-3.5" />
+                      <span>Check Connection</span>
+                    </button>
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-5 items-center bg-white p-4 rounded-xl border border-amber-200">
+                  <div className="flex flex-col items-center justify-center p-3 bg-slate-50 rounded-xl border border-slate-200 shrink-0">
+                    {qrLoading ? (
+                      <div className="w-44 h-44 flex flex-col items-center justify-center space-y-2 text-slate-400">
+                        <RefreshCw className="w-7 h-7 animate-spin text-amber-600" />
+                        <span className="text-[11px] font-bold text-slate-600">Generating QR...</span>
+                      </div>
+                    ) : qrImage ? (
+                      <img src={qrImage} alt="WhatsApp QR Code" className="w-44 h-44 object-contain rounded-lg border border-slate-100 shadow-sm" />
+                    ) : (
+                      <div className="w-44 h-44 flex flex-col items-center justify-center space-y-2 text-slate-400 text-center p-3">
+                        <QrCode className="w-8 h-8 text-slate-300" />
+                        <span className="text-[11px] font-medium text-slate-500">Click "Refresh QR" to generate login QR</span>
+                      </div>
+                    )}
+                    <span className="text-[10px] text-slate-500 mt-2 font-mono font-medium">QR expires in 20 seconds</span>
+                  </div>
+
+                  <div className="md:col-span-2 space-y-3 text-xs text-slate-700">
+                    <div className="font-extrabold text-slate-900 flex items-center space-x-2 text-sm">
+                      <Smartphone className="w-4 h-4 text-emerald-600" />
+                      <span>How to link in 3 steps:</span>
+                    </div>
+                    <ol className="list-decimal list-inside space-y-2 text-[12px] text-slate-700 pl-1 font-medium leading-relaxed">
+                      <li>
+                        Open <strong>WhatsApp</strong> on your mobile phone (the number that is in your Alumni Group).
+                      </li>
+                      <li>
+                        Tap <strong>Settings</strong> (iPhone) or <strong>⋮ Menu</strong> (Android) &gt; <strong>Linked Devices</strong>.
+                      </li>
+                      <li>
+                        Tap <strong>Link a Device</strong> and point your phone camera at this QR code.
+                      </li>
+                    </ol>
+                    <div className="p-2.5 bg-emerald-50 border border-emerald-200 rounded-lg text-[11px] text-emerald-900 font-semibold flex items-center space-x-2">
+                      <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
+                      <span>Once scanned, WhatsApp will link instantly and allow sending alerts to your Alumni Group!</span>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            )}
 
             <form onSubmit={handleSaveConfig} className="space-y-6">
               {/* Token Input */}
               <div className="space-y-2">
-                <label className="text-xs font-bold text-slate-700 flex items-center justify-between">
-                  <span>Whapi API Token</span>
-                  <a href="https://panel.whapi.cloud/" target="_blank" rel="noopener noreferrer" className="text-emerald-600 hover:underline text-[11px]">
-                    Get Token from Panel &rarr;
-                  </a>
-                </label>
+                <div className="flex items-center justify-between">
+                  <label className="text-xs font-bold text-slate-700">Whapi API Token</label>
+                  <div className="flex items-center space-x-3">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setShowQrCard(!showQrCard);
+                        if (!showQrCard) fetchQrCode();
+                      }}
+                      className="text-amber-700 hover:text-amber-800 text-[11px] font-bold flex items-center space-x-1"
+                    >
+                      <QrCode className="w-3.5 h-3.5 text-amber-600" />
+                      <span>{showQrCard ? 'Hide QR Code' : 'Scan WhatsApp QR Code'}</span>
+                    </button>
+                    <a href="https://panel.whapi.cloud/" target="_blank" rel="noopener noreferrer" className="text-emerald-600 hover:underline text-[11px]">
+                      Whapi Panel &rarr;
+                    </a>
+                  </div>
+                </div>
                 <div className="relative">
                   <input
                     type={showToken ? 'text' : 'password'}
                     value={config.token}
                     onChange={(e) => setConfig({ ...config, token: e.target.value })}
-                    placeholder="Enter your Whapi API token (e.g. Bo6M44SDyJYZ2loUyZ...)"
+                    placeholder="Enter your Whapi API token (e.g. fjfG2CDah9p61pKATGi6AlV0DGXtTQGE)"
                     className="w-full bg-slate-50 border border-slate-300 rounded-xl px-4 py-3 pr-12 text-xs font-mono focus:outline-none focus:border-emerald-500"
                   />
                   <button
@@ -318,7 +509,7 @@ export const WhapiSettingsModule: React.FC = () => {
                   </button>
                 </div>
                 <p className="text-[11px] text-slate-400">
-                  Channel token generated inside panel.whapi.cloud &gt; Channels &gt; Settings.
+                  Channel token from panel.whapi.cloud &gt; Channels &gt; Settings.
                 </p>
               </div>
 
@@ -341,15 +532,15 @@ export const WhapiSettingsModule: React.FC = () => {
                     placeholder="https://gate.whapi.cloud/messages/text"
                     className="w-full bg-slate-50 border border-slate-300 rounded-xl px-4 py-3 text-xs font-mono focus:outline-none focus:border-emerald-500"
                   />
-                  <p className="text-[11px] text-emerald-600 font-medium">Auto-formats to: https://gate.whapi.cloud/messages/text</p>
+                  <p className="text-[11px] text-emerald-600 font-medium">Standard endpoint: https://gate.whapi.cloud/messages/text</p>
                 </div>
 
                 <div className="space-y-2">
                   <div className="flex items-center justify-between">
-                    <label className="text-xs font-bold text-slate-700">Default Recipient (Group JID / Phone / Link)</label>
+                    <label className="text-xs font-bold text-slate-700">Default Recipient (Group JID / Phone)</label>
                     <button
                       type="button"
-                      onClick={handleFetchGroups}
+                      onClick={() => handleFetchGroups()}
                       disabled={fetchingGroups}
                       className="text-[11px] font-bold text-emerald-700 bg-emerald-50 hover:bg-emerald-100 border border-emerald-200 px-2.5 py-1 rounded-lg transition-colors flex items-center space-x-1"
                     >
@@ -395,7 +586,7 @@ export const WhapiSettingsModule: React.FC = () => {
                       
                       {config.recipient === '120363419135488102@g.us' ? (
                         <p className="text-[10px] font-semibold text-emerald-800 flex items-center space-x-1">
-                          <span>✅ Default Group Active: <strong>BUTEX PGD-TIM ALUMNI</strong> (<code className="font-mono text-emerald-950 font-bold">120363419135488102@g.us</code>). Change group anytime using the dropdown.</span>
+                          <span>✅ Default Group Active: <strong>BUTEX PGD-TIM ALUMNI</strong> (<code className="font-mono text-emerald-950 font-bold">120363419135488102@g.us</code>).</span>
                         </p>
                       ) : (
                         <p className="text-[10px] font-semibold text-emerald-800">
@@ -406,8 +597,21 @@ export const WhapiSettingsModule: React.FC = () => {
                   )}
 
                   {groupsError && (
-                    <div className="p-2.5 bg-rose-50 border border-rose-200 rounded-xl text-[11px] text-rose-800 font-medium">
-                      ⚠️ {groupsError}
+                    <div className="p-3 bg-rose-50 border border-rose-200 rounded-xl text-[11px] text-rose-800 font-medium space-y-2">
+                      <div>{groupsError}</div>
+                      {groupsError.includes('QR') && (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setShowQrCard(true);
+                            fetchQrCode();
+                          }}
+                          className="px-3 py-1 bg-amber-600 hover:bg-amber-700 text-white font-bold rounded-lg text-xs flex items-center space-x-1"
+                        >
+                          <QrCode className="w-3 h-3" />
+                          <span>Show QR Code to Link Phone</span>
+                        </button>
+                      )}
                     </div>
                   )}
 
@@ -415,22 +619,67 @@ export const WhapiSettingsModule: React.FC = () => {
                     type="text"
                     value={config.recipient}
                     onChange={(e) => setConfig({ ...config, recipient: e.target.value })}
-                    placeholder="e.g. 120363423719406224@g.us or https://chat.whatsapp.com/KweNkLIs5KCFMDM3W3Aza6"
+                    placeholder="e.g. 120363419135488102@g.us"
                     className="w-full bg-slate-50 border border-slate-300 rounded-xl px-4 py-3 text-xs font-mono focus:outline-none focus:border-emerald-500"
                   />
 
+                  {/* 1-Click Group JID Conversion if Invite Link Entered */}
                   {config.recipient.includes('chat.whatsapp.com') && (
-                    <div className="p-3 bg-amber-50 border border-amber-300 rounded-xl text-[11px] text-amber-900 space-y-1">
+                    <div className="p-3.5 bg-amber-50 border-2 border-amber-300 rounded-xl text-xs text-amber-900 space-y-2 shadow-sm">
                       <div className="flex items-center space-x-1.5 font-bold text-amber-950">
                         <AlertTriangle className="w-4 h-4 text-amber-600 shrink-0" />
                         <span>WhatsApp Group Invite Link Detected</span>
                       </div>
-                      <p className="text-amber-800">
-                        Whapi API requires the official <strong>Group Chat JID</strong> ending in <code className="bg-white/80 px-1 py-0.5 rounded text-amber-950 font-bold font-mono">@g.us</code> (e.g. <code className="bg-white/80 px-1 py-0.5 rounded text-amber-950 font-bold font-mono">1203630XXXXXXXXX@g.us</code>) to deliver messages inside the WhatsApp Group. Click <strong>"Auto-Fetch My Groups"</strong> above to select it directly!
+                      <p className="text-amber-800 text-[11px] leading-relaxed">
+                        WhatsApp invite links cannot receive automated API messages directly. Whapi requires the official <strong>Group Chat JID</strong> ending in <code className="bg-white px-1.5 py-0.5 rounded font-bold font-mono text-amber-950 border border-amber-300">@g.us</code>.
                       </p>
+                      <div className="pt-1">
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setConfig({ ...config, recipient: '120363419135488102@g.us' });
+                            setTestRecipient('120363419135488102@g.us');
+                          }}
+                          className="px-3.5 py-2 bg-emerald-600 hover:bg-emerald-500 text-white font-bold rounded-xl text-xs shadow-sm flex items-center space-x-1.5 transition-all cursor-pointer"
+                        >
+                          <CheckCircle2 className="w-4 h-4" />
+                          <span>Set Official Group JID (120363419135488102@g.us)</span>
+                        </button>
+                      </div>
                     </div>
                   )}
-                  <p className="text-[11px] text-slate-400">Enter WhatsApp Group Chat JID ending in @g.us or click Auto-Fetch My Groups.</p>
+
+                  {/* Quick Presets */}
+                  <div className="flex flex-wrap items-center gap-2 pt-1">
+                    <span className="text-[11px] font-bold text-slate-500">Quick Presets:</span>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setConfig({ ...config, recipient: '120363419135488102@g.us' });
+                        setTestRecipient('120363419135488102@g.us');
+                      }}
+                      className={`px-2.5 py-1 rounded-lg text-[11px] font-bold transition-all border ${
+                        config.recipient === '120363419135488102@g.us'
+                          ? 'bg-emerald-100 text-emerald-900 border-emerald-300'
+                          : 'bg-slate-100 hover:bg-slate-200 text-slate-700 border-slate-200'
+                      }`}
+                    >
+                      👥 BUTEX Alumni Group (120363419135488102@g.us)
+                    </button>
+                    {channelStatus.user?.id && (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          const phone = channelStatus.user?.id?.replace(/\D/g, '') || '';
+                          setConfig({ ...config, recipient: phone });
+                          setTestRecipient(phone);
+                        }}
+                        className="px-2.5 py-1 rounded-lg text-[11px] font-bold bg-slate-100 hover:bg-slate-200 text-slate-700 border border-slate-200 transition-all"
+                      >
+                        📱 My Phone (+{channelStatus.user.id})
+                      </button>
+                    )}
+                  </div>
                 </div>
               </div>
 
@@ -442,13 +691,13 @@ export const WhapiSettingsModule: React.FC = () => {
                 </div>
                 <ol className="list-decimal list-inside space-y-1.5 text-[11px] text-slate-700 pl-1 font-medium">
                   <li>
-                    <strong className="text-slate-900">Step 1:</strong> Make sure your connected Whapi phone number (<code className="bg-emerald-100 px-1 py-0.5 rounded text-emerald-900 font-mono">+880 1826 666641</code>) is added as a member in your WhatsApp Group (<code className="bg-emerald-100 px-1 py-0.5 rounded text-emerald-900 font-mono">BUTEX PGD Alumni</code>).
+                    <strong className="text-slate-900">Step 1:</strong> Make sure your connected Whapi phone number {channelStatus.user?.id ? (<code className="bg-emerald-100 px-1 py-0.5 rounded text-emerald-900 font-mono">+{channelStatus.user.id}</code>) : '(the number scanned via QR code)'} is added as a member in your WhatsApp Group (<code className="bg-emerald-100 px-1 py-0.5 rounded text-emerald-900 font-mono">BUTEX PGD Alumni</code>).
                   </li>
                   <li>
                     <strong className="text-slate-900">Step 2:</strong> Open your Whapi Dashboard at <a href="https://panel.whapi.cloud/" target="_blank" rel="noopener noreferrer" className="text-emerald-700 underline font-extrabold hover:text-emerald-900">panel.whapi.cloud</a> &gt; click <strong>Chats</strong> in the side menu.
                   </li>
                   <li>
-                    <strong className="text-slate-900">Step 3:</strong> Select your WhatsApp Group chat and copy its <strong>Chat ID / JID</strong> ending in <code className="bg-emerald-100 px-1.5 py-0.5 rounded text-emerald-900 font-extrabold font-mono">@g.us</code> (e.g., <code className="bg-emerald-100 px-1.5 py-0.5 rounded text-emerald-900 font-extrabold font-mono">1203630XXXXXXXXX@g.us</code>).
+                    <strong className="text-slate-900">Step 3:</strong> Select your WhatsApp Group chat and copy its <strong>Chat ID / JID</strong> ending in <code className="bg-emerald-100 px-1.5 py-0.5 rounded text-emerald-900 font-extrabold font-mono">@g.us</code> (e.g., <code className="bg-emerald-100 px-1.5 py-0.5 rounded text-emerald-900 font-extrabold font-mono">120363419135488102@g.us</code>).
                   </li>
                 </ol>
                 <div className="pt-1.5 border-t border-emerald-200/60 text-[11px] text-slate-600">
@@ -597,14 +846,33 @@ export const WhapiSettingsModule: React.FC = () => {
 
             <form onSubmit={handleSendTestMessage} className="space-y-4">
               <div className="space-y-1.5">
-                <label className="text-xs font-bold text-slate-300">Target Recipient Number or Group ID</label>
+                <div className="flex items-center justify-between">
+                  <label className="text-xs font-bold text-slate-300">Target Recipient Number or Group JID</label>
+                  <button
+                    type="button"
+                    onClick={() => setTestRecipient('120363419135488102@g.us')}
+                    className="text-[10px] text-emerald-400 hover:text-emerald-300 font-bold"
+                  >
+                    Use Alumni Group JID
+                  </button>
+                </div>
                 <input
                   type="text"
                   value={testRecipient}
                   onChange={(e) => setTestRecipient(e.target.value)}
-                  placeholder="8801700000000"
+                  placeholder="e.g. 120363419135488102@g.us or 8801826666641"
                   className="w-full bg-slate-800 border border-slate-700 rounded-xl px-3.5 py-2.5 text-xs font-mono text-white focus:outline-none focus:border-emerald-500"
                 />
+                {testRecipient.includes('chat.whatsapp.com') && (
+                  <button
+                    type="button"
+                    onClick={() => setTestRecipient('120363419135488102@g.us')}
+                    className="w-full py-1.5 px-2.5 bg-amber-500/20 border border-amber-500/40 hover:bg-amber-500/30 text-amber-200 text-[11px] font-bold rounded-lg text-left flex items-center justify-between"
+                  >
+                    <span>Invite link detected &rarr; Convert to @g.us JID</span>
+                    <span className="underline">Convert</span>
+                  </button>
+                )}
               </div>
 
               <div className="space-y-1.5">
