@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { ShieldCheck, Lock, Phone, Key, Sparkles, MessageSquare, CheckCircle2, AlertCircle, Clock } from 'lucide-react';
+import { ShieldCheck, Lock, Phone, Key, Sparkles, MessageSquare, CheckCircle2, AlertCircle } from 'lucide-react';
 import { UserProfile, AlumniRecord } from '../types';
 
 interface AuthOverlayProps {
@@ -195,12 +195,6 @@ export const AuthOverlay: React.FC<AuthOverlayProps> = ({
           <p className="text-xs text-slate-400 leading-relaxed">
             Main view is protected. Authenticate via real-time OTP linked with Google Master Sheet or Master Passcode to unlock full directory and events.
           </p>
-
-          {/* 24-Hour Active Session Badge */}
-          <div className="inline-flex items-center space-x-2 bg-amber-500/10 border border-amber-500/30 text-amber-300 px-3 py-1.5 rounded-xl text-xs font-semibold mt-1">
-            <Clock className="w-3.5 h-3.5 text-amber-400 shrink-0" />
-            <span>24-Hour Active Session — Stay logged in for 1 day</span>
-          </div>
         </div>
 
         {/* Mode Selector */}

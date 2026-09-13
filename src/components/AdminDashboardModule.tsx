@@ -33,7 +33,8 @@ import {
   RotateCcw,
   Copy,
   Settings,
-  Archive
+  Archive,
+  FileText
 } from 'lucide-react';
 import { JobPost, EventItem, EventRegistration, TableTalkPost, MemberJoinRequest, AlumniRecord, formatGoogleDriveUrl, isEventOneDayOver } from '../types';
 import { WhapiSettingsModule } from './WhapiSettingsModule';
@@ -1000,7 +1001,19 @@ export const AdminDashboardModule: React.FC<AdminDashboardModuleProps> = ({
           </div>
         </div>
 
-        <div className="flex items-center space-x-2 shrink-0">
+        <div className="flex flex-wrap items-center gap-2 shrink-0">
+          <a
+            href="https://drive.google.com/file/d/1uMOI8R1PHXxq59k8mWVe7dEqOe60sePKmULDWbwrDEg/view?usp=sharing"
+            target="_blank"
+            rel="noreferrer"
+            className="px-3.5 py-2 rounded-xl bg-amber-500/20 text-amber-300 border border-amber-500/40 text-xs font-bold hover:bg-amber-500/30 transition-all flex items-center space-x-1.5 shadow-sm"
+            title="Open Official Student ID Info PDF from Google Drive"
+          >
+            <FileText className="w-3.5 h-3.5 text-amber-400" />
+            <span>STUDENT ID Info</span>
+            <ExternalLink className="w-3 h-3 text-amber-400" />
+          </a>
+
           {role === 'admin' && (
             <button
               onClick={() => setElevateModalOpen(true)}
@@ -2531,7 +2544,19 @@ export const AdminDashboardModule: React.FC<AdminDashboardModuleProps> = ({
               </div>
             </div>
 
-            <div className="flex items-center space-x-3 shrink-0">
+            <div className="flex flex-wrap items-center gap-3 shrink-0">
+              <a
+                href="https://drive.google.com/file/d/1uMOI8R1PHXxq59k8mWVe7dEqOe60sePKmULDWbwrDEg/view?usp=sharing"
+                target="_blank"
+                rel="noreferrer"
+                className="px-4 py-2.5 rounded-xl bg-slate-900 hover:bg-slate-800 text-amber-300 font-bold text-xs flex items-center justify-center space-x-1.5 transition-all shadow"
+                title="Google Drive Official Student ID Information Document"
+              >
+                <FileText className="w-4 h-4 text-amber-400" />
+                <span>STUDENT ID Info</span>
+                <ExternalLink className="w-3 h-3 text-slate-400" />
+              </a>
+
               <button
                 onClick={() => setShowMemberModal(true)}
                 className="px-5 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs flex items-center justify-center space-x-2 transition-all shadow"

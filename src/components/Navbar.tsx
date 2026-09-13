@@ -206,20 +206,22 @@ export const Navbar: React.FC<NavbarProps> = ({
                   Quick Utilities
                 </div>
 
-                <a
-                  href="https://drive.google.com/file/d/1uMOI8R1PHXxq59k8mWVe7dEqOe60sePKmULDWbwrDEg/view?usp=sharing"
-                  target="_blank"
-                  rel="noreferrer"
-                  onClick={() => setShowDropdown(false)}
-                  className="flex items-center space-x-2.5 px-3 py-2 rounded-xl hover:bg-slate-800 text-amber-400 font-bold transition-colors"
-                >
-                  <FileText className="w-4 h-4 text-amber-400 shrink-0" />
-                  <div className="flex flex-col">
-                    <span>STUDENT ID Info</span>
-                    <span className="text-[9px] text-slate-400 font-normal">Google Drive Official PDF</span>
-                  </div>
-                  <ExternalLink className="w-3 h-3 ml-auto text-slate-500" />
-                </a>
+                {currentTab === 'admin' && (
+                  <a
+                    href="https://drive.google.com/file/d/1uMOI8R1PHXxq59k8mWVe7dEqOe60sePKmULDWbwrDEg/view?usp=sharing"
+                    target="_blank"
+                    rel="noreferrer"
+                    onClick={() => setShowDropdown(false)}
+                    className="flex items-center space-x-2.5 px-3 py-2 rounded-xl hover:bg-slate-800 text-amber-400 font-bold transition-colors"
+                  >
+                    <FileText className="w-4 h-4 text-amber-400 shrink-0" />
+                    <div className="flex flex-col">
+                      <span>STUDENT ID Info</span>
+                      <span className="text-[9px] text-slate-400 font-normal">Google Drive Official PDF</span>
+                    </div>
+                    <ExternalLink className="w-3 h-3 ml-auto text-slate-500" />
+                  </a>
+                )}
 
                 <button
                   onClick={() => {
@@ -345,19 +347,21 @@ export const Navbar: React.FC<NavbarProps> = ({
 
             {/* Quick External Links */}
             <div className="pt-2 border-t border-white/10 space-y-2">
-              <a
-                href="https://drive.google.com/file/d/1uMOI8R1PHXxq59k8mWVe7dEqOe60sePKmULDWbwrDEg/view?usp=sharing"
-                target="_blank"
-                rel="noreferrer"
-                onClick={() => setIsMobileMenuOpen(false)}
-                className="w-full flex items-center justify-between px-4 py-2.5 rounded-2xl bg-white/5 hover:bg-white/10 text-amber-400 text-xs font-bold"
-              >
-                <div className="flex items-center space-x-2.5">
-                  <FileText className="w-4 h-4 text-amber-400" />
-                  <span>Student ID Official PDF</span>
-                </div>
-                <ExternalLink className="w-3.5 h-3.5 text-slate-400" />
-              </a>
+              {currentTab === 'admin' && (
+                <a
+                  href="https://drive.google.com/file/d/1uMOI8R1PHXxq59k8mWVe7dEqOe60sePKmULDWbwrDEg/view?usp=sharing"
+                  target="_blank"
+                  rel="noreferrer"
+                  onClick={() => setIsMobileMenuOpen(false)}
+                  className="w-full flex items-center justify-between px-4 py-2.5 rounded-2xl bg-white/5 hover:bg-white/10 text-amber-400 text-xs font-bold"
+                >
+                  <div className="flex items-center space-x-2.5">
+                    <FileText className="w-4 h-4 text-amber-400" />
+                    <span>STUDENT ID Info (Official PDF)</span>
+                  </div>
+                  <ExternalLink className="w-3.5 h-3.5 text-slate-400" />
+                </a>
+              )}
 
               <a
                 href="https://wa.me/?text=Hello%20BUTEX%20PGD%20Alumni%20Network"
