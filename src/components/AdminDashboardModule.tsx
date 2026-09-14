@@ -34,7 +34,8 @@ import {
   Copy,
   Settings,
   Archive,
-  FileText
+  FileText,
+  Edit3
 } from 'lucide-react';
 import { JobPost, EventItem, EventRegistration, TableTalkPost, MemberJoinRequest, AlumniRecord, formatGoogleDriveUrl, isEventOneDayOver } from '../types';
 import { WhapiSettingsModule } from './WhapiSettingsModule';
@@ -44,6 +45,7 @@ interface AdminDashboardModuleProps {
   adminJobs: JobPost[];
   onUpdateJobStatus: (id: string, status: 'approved' | 'rejected' | 'pending') => void;
   onDeleteJob?: (id: string, title: string) => void;
+  onRefreshJobs?: () => void;
   events?: EventItem[];
   onRefreshEvents?: () => void;
   alumniList?: AlumniRecord[];
@@ -57,6 +59,7 @@ export const AdminDashboardModule: React.FC<AdminDashboardModuleProps> = ({
   adminJobs,
   onUpdateJobStatus,
   onDeleteJob,
+  onRefreshJobs,
   events = [],
   onRefreshEvents,
   alumniList = [],
@@ -560,10 +563,110 @@ export const AdminDashboardModule: React.FC<AdminDashboardModuleProps> = ({
 
   // Local Events state for instant optimistic updates
   const [localEvents, setLocalEvents] = useState<EventItem[]>(events);
+  const [editingEvent, setEditingEvent] = useState<EventItem | null>(null);
+  const [isUpdatingEvent, setIsUpdatingEvent] = useState(false);
+
+  // Job Post Editing State
+  const [editingJob, setEditingJob] = useState<JobPost | null>(null);
+  const [isUpdatingJob, setIsUpdatingJob] = useState(false);
+
+  const handleSaveEditedJob = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!editingJob) return;
+    setIsUpdatingJob(true);
+    try {
+      const res = await fetch(`/api/admin/jobs/${encodeURIComponent(editingJob.id)}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(editingJob)
+      });
+      const data = await res.json();
+      if (res.ok && data.success) {
+        if (onRefreshJobs) onRefreshJobs();
+        setEraseMsg({ success: true, text: `✓ Job posting "${editingJob.title}" updated successfully.` });
+        setEditingJob(null);
+      } else {
+        alert(`Failed to update job post: ${data.message || 'Error occurred'}`);
+      }
+    } catch (err: any) {
+      alert(`Error updating job: ${err.message}`);
+    } finally {
+      setIsUpdatingJob(false);
+      setTimeout(() => setEraseMsg(null), 5000);
+    }
+  };
+
+  // Table Talk Post Editing State
+  const [editingTableTalk, setEditingTableTalk] = useState<TableTalkPost | null>(null);
+  const [isUpdatingTableTalk, setIsUpdatingTableTalk] = useState(false);
+
+  const handleSaveEditedTableTalk = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!editingTableTalk) return;
+    setIsUpdatingTableTalk(true);
+    try {
+      const res = await fetch(`/api/admin/tabletalk/${encodeURIComponent(editingTableTalk.id)}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(editingTableTalk)
+      });
+      const data = await res.json();
+      if (res.ok && data.success) {
+        setTableTalkPosts(prev => prev.map(p => p.id === editingTableTalk.id ? data.post : p));
+        try {
+          const cached = localStorage.getItem('butex_table_talk_posts');
+          if (cached) {
+            const parsed = JSON.parse(cached);
+            if (Array.isArray(parsed)) {
+              const updated = parsed.map((p: any) => p.id === editingTableTalk.id ? data.post : p);
+              localStorage.setItem('butex_table_talk_posts', JSON.stringify(updated));
+            }
+          }
+        } catch (e) {}
+        window.dispatchEvent(new CustomEvent('tabletalk-changed', { detail: { action: 'update', post: data.post } }));
+        setEditingTableTalk(null);
+        fetchTableTalkPosts();
+        alert(`✓ Table Talk discussion updated successfully!`);
+      } else {
+        alert(`Failed to update Table Talk: ${data.message || 'Error occurred'}`);
+      }
+    } catch (err: any) {
+      alert(`Error updating Table Talk: ${err.message}`);
+    } finally {
+      setIsUpdatingTableTalk(false);
+    }
+  };
 
   useEffect(() => {
     setLocalEvents(events);
   }, [events]);
+
+  const handleSaveEditedEvent = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!editingEvent) return;
+    setIsUpdatingEvent(true);
+    try {
+      const res = await fetch(`/api/admin/events/${encodeURIComponent(editingEvent.id)}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(editingEvent)
+      });
+      const data = await res.json();
+      if (res.ok && data.success) {
+        setLocalEvents(prev => prev.map(evt => evt.id === editingEvent.id ? data.event : evt));
+        setEraseMsg({ success: true, text: `✓ Event "${editingEvent.title}" updated successfully and persisted to database.` });
+        setEditingEvent(null);
+        if (onRefreshEvents) onRefreshEvents();
+      } else {
+        setEraseMsg({ success: false, text: `Failed to update event: ${data.message || 'Error occurred'}` });
+      }
+    } catch (err: any) {
+      setEraseMsg({ success: false, text: `Error updating event: ${err.message}` });
+    } finally {
+      setIsUpdatingEvent(false);
+      setTimeout(() => setEraseMsg(null), 5000);
+    }
+  };
 
   const handleEraseEventPost = (eventId: string) => {
     setConfirmingEraseId(eventId);
@@ -1291,6 +1394,14 @@ export const AdminDashboardModule: React.FC<AdminDashboardModuleProps> = ({
 
                     <div className="flex items-center space-x-2 shrink-0">
                       <button
+                        onClick={() => setEditingJob({ ...job })}
+                        className="px-3 py-1.5 rounded-xl bg-white hover:bg-slate-100 text-slate-800 font-bold text-xs flex items-center space-x-1 border border-slate-300 shadow-xs transition-colors"
+                        title="Edit Job Posting Details"
+                      >
+                        <Edit3 className="w-3.5 h-3.5 text-blue-600" />
+                        <span>Edit</span>
+                      </button>
+                      <button
                         onClick={() => onUpdateJobStatus(job.id, 'approved')}
                         className="px-3 py-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs flex items-center space-x-1 shadow transition-colors"
                       >
@@ -1349,6 +1460,14 @@ export const AdminDashboardModule: React.FC<AdminDashboardModuleProps> = ({
                         </span>
                       </td>
                       <td className="p-3 text-right space-x-2">
+                        <button
+                          onClick={() => setEditingJob({ ...j })}
+                          className="text-blue-600 hover:underline font-bold text-[11px] inline-flex items-center gap-1"
+                          title="Edit Job Post"
+                        >
+                          <Edit3 className="w-3 h-3" />
+                          <span>Edit</span>
+                        </button>
                         {j.status !== 'approved' && (
                           <button onClick={() => onUpdateJobStatus(j.id, 'approved')} className="text-emerald-700 hover:underline font-bold text-[11px]">Approve</button>
                         )}
@@ -1365,6 +1484,201 @@ export const AdminDashboardModule: React.FC<AdminDashboardModuleProps> = ({
               </table>
             </div>
           </div>
+
+          {/* Edit Job Modal */}
+          {editingJob && (
+            <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-xs flex items-center justify-center p-4">
+              <div className="bg-white rounded-3xl shadow-2xl max-w-2xl w-full max-h-[90vh] overflow-y-auto border border-slate-200 flex flex-col">
+                <div className="p-5 bg-gradient-to-r from-slate-900 to-slate-800 text-white flex items-center justify-between rounded-t-3xl">
+                  <div className="flex items-center space-x-2">
+                    <Edit3 className="w-5 h-5 text-amber-400" />
+                    <h3 className="text-base font-extrabold">Edit Job Posting</h3>
+                  </div>
+                  <button 
+                    onClick={() => setEditingJob(null)}
+                    className="p-1 rounded-lg hover:bg-white/10 text-slate-300 hover:text-white"
+                  >
+                    <X className="w-5 h-5" />
+                  </button>
+                </div>
+
+                <form onSubmit={handleSaveEditedJob} className="p-6 space-y-4">
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    <div>
+                      <label className="text-xs font-bold text-slate-700 block mb-1">Job Title *</label>
+                      <input
+                        type="text"
+                        required
+                        value={editingJob.title}
+                        onChange={(e) => setEditingJob({ ...editingJob, title: e.target.value })}
+                        className="w-full px-3.5 py-2 text-sm bg-slate-50 border border-slate-300 rounded-xl focus:ring-2 focus:ring-[#0B192C] focus:bg-white"
+                      />
+                    </div>
+                    <div>
+                      <label className="text-xs font-bold text-slate-700 block mb-1">Company Name *</label>
+                      <input
+                        type="text"
+                        required
+                        value={editingJob.company}
+                        onChange={(e) => setEditingJob({ ...editingJob, company: e.target.value })}
+                        className="w-full px-3.5 py-2 text-sm bg-slate-50 border border-slate-300 rounded-xl focus:ring-2 focus:ring-[#0B192C] focus:bg-white"
+                      />
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                    <div>
+                      <label className="text-xs font-bold text-slate-700 block mb-1">Category</label>
+                      <select
+                        value={editingJob.category || 'Production'}
+                        onChange={(e) => setEditingJob({ ...editingJob, category: e.target.value })}
+                        className="w-full px-3.5 py-2 text-sm bg-slate-50 border border-slate-300 rounded-xl focus:ring-2 focus:ring-[#0B192C] focus:bg-white"
+                      >
+                        <option value="Production">Production</option>
+                        <option value="Merchandising">Merchandising</option>
+                        <option value="QA">QA & Testing</option>
+                        <option value="IE">IE & Work Study</option>
+                        <option value="Supply Chain">Supply Chain & Sourcing</option>
+                        <option value="HR">HR & Compliance</option>
+                        <option value="R&D">R&D / Washing</option>
+                        <option value="General">General / Other</option>
+                      </select>
+                    </div>
+                    <div>
+                      <label className="text-xs font-bold text-slate-700 block mb-1">Location</label>
+                      <input
+                        type="text"
+                        value={editingJob.location || ''}
+                        onChange={(e) => setEditingJob({ ...editingJob, location: e.target.value })}
+                        placeholder="e.g. Gazipur, Dhaka"
+                        className="w-full px-3.5 py-2 text-sm bg-slate-50 border border-slate-300 rounded-xl focus:ring-2 focus:ring-[#0B192C] focus:bg-white"
+                      />
+                    </div>
+                    <div>
+                      <label className="text-xs font-bold text-slate-700 block mb-1">Experience Required</label>
+                      <input
+                        type="text"
+                        value={editingJob.experienceRequired || ''}
+                        onChange={(e) => setEditingJob({ ...editingJob, experienceRequired: e.target.value })}
+                        placeholder="e.g. 3-5 Years"
+                        className="w-full px-3.5 py-2 text-sm bg-slate-50 border border-slate-300 rounded-xl focus:ring-2 focus:ring-[#0B192C] focus:bg-white"
+                      />
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                    <div>
+                      <label className="text-xs font-bold text-slate-700 block mb-1">Salary Range</label>
+                      <input
+                        type="text"
+                        value={editingJob.salaryRange || ''}
+                        onChange={(e) => setEditingJob({ ...editingJob, salaryRange: e.target.value })}
+                        placeholder="e.g. 50,000 - 70,000 BDT or Negotiable"
+                        className="w-full px-3.5 py-2 text-sm bg-slate-50 border border-slate-300 rounded-xl focus:ring-2 focus:ring-[#0B192C] focus:bg-white"
+                      />
+                    </div>
+                    <div>
+                      <label className="text-xs font-bold text-slate-700 block mb-1">Application Deadline</label>
+                      <input
+                        type="text"
+                        value={editingJob.deadline || ''}
+                        onChange={(e) => setEditingJob({ ...editingJob, deadline: e.target.value })}
+                        placeholder="YYYY-MM-DD or text"
+                        className="w-full px-3.5 py-2 text-sm bg-slate-50 border border-slate-300 rounded-xl focus:ring-2 focus:ring-[#0B192C] focus:bg-white"
+                      />
+                    </div>
+                    <div>
+                      <label className="text-xs font-bold text-slate-700 block mb-1">Moderation Status</label>
+                      <select
+                        value={editingJob.status}
+                        onChange={(e) => setEditingJob({ ...editingJob, status: e.target.value as any })}
+                        className="w-full px-3.5 py-2 text-sm bg-slate-50 border border-slate-300 rounded-xl focus:ring-2 focus:ring-[#0B192C] focus:bg-white"
+                      >
+                        <option value="approved">Approved (Live)</option>
+                        <option value="pending">Pending</option>
+                        <option value="rejected">Rejected</option>
+                      </select>
+                    </div>
+                  </div>
+
+                  <div>
+                    <label className="text-xs font-bold text-slate-700 block mb-1">Required Skills (Comma separated)</label>
+                    <input
+                      type="text"
+                      value={Array.isArray(editingJob.requiredSkills) ? editingJob.requiredSkills.join(', ') : ''}
+                      onChange={(e) => setEditingJob({ 
+                        ...editingJob, 
+                        requiredSkills: e.target.value.split(',').map(s => s.trim()).filter(Boolean) 
+                      })}
+                      placeholder="e.g. Knitting, Dyeing, ERP, Costing"
+                      className="w-full px-3.5 py-2 text-sm bg-slate-50 border border-slate-300 rounded-xl focus:ring-2 focus:ring-[#0B192C] focus:bg-white"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="text-xs font-bold text-slate-700 block mb-1">Application / Circular Link</label>
+                    <input
+                      type="url"
+                      value={editingJob.originalUrl || ''}
+                      onChange={(e) => setEditingJob({ ...editingJob, originalUrl: e.target.value })}
+                      placeholder="https://..."
+                      className="w-full px-3.5 py-2 text-sm bg-slate-50 border border-slate-300 rounded-xl focus:ring-2 focus:ring-[#0B192C] focus:bg-white"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="text-xs font-bold text-slate-700 block mb-1">Job Description & Responsibilities</label>
+                    <textarea
+                      rows={4}
+                      value={editingJob.jobDescription || ''}
+                      onChange={(e) => setEditingJob({ ...editingJob, jobDescription: e.target.value })}
+                      className="w-full px-3.5 py-2 text-sm bg-slate-50 border border-slate-300 rounded-xl focus:ring-2 focus:ring-[#0B192C] focus:bg-white resize-none"
+                    />
+                  </div>
+
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    <div>
+                      <label className="text-xs font-bold text-slate-700 block mb-1">Poster Name</label>
+                      <input
+                        type="text"
+                        value={editingJob.posterName || ''}
+                        onChange={(e) => setEditingJob({ ...editingJob, posterName: e.target.value })}
+                        className="w-full px-3.5 py-2 text-sm bg-slate-50 border border-slate-300 rounded-xl focus:ring-2 focus:ring-[#0B192C] focus:bg-white"
+                      />
+                    </div>
+                    <div>
+                      <label className="text-xs font-bold text-slate-700 block mb-1">Poster Email</label>
+                      <input
+                        type="email"
+                        value={editingJob.posterEmail || ''}
+                        onChange={(e) => setEditingJob({ ...editingJob, posterEmail: e.target.value })}
+                        className="w-full px-3.5 py-2 text-sm bg-slate-50 border border-slate-300 rounded-xl focus:ring-2 focus:ring-[#0B192C] focus:bg-white"
+                      />
+                    </div>
+                  </div>
+
+                  <div className="flex items-center justify-end space-x-3 pt-3 border-t border-slate-200">
+                    <button
+                      type="button"
+                      onClick={() => setEditingJob(null)}
+                      disabled={isUpdatingJob}
+                      className="px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold text-xs rounded-xl transition-all"
+                    >
+                      Cancel
+                    </button>
+                    <button
+                      type="submit"
+                      disabled={isUpdatingJob}
+                      className="px-5 py-2 bg-[#0B192C] hover:bg-[#1E3A8A] text-white font-bold text-xs rounded-xl shadow transition-all flex items-center space-x-1.5 disabled:opacity-50"
+                    >
+                      <Save className="w-3.5 h-3.5" />
+                      <span>{isUpdatingJob ? 'Saving Changes...' : 'Save Changes'}</span>
+                    </button>
+                  </div>
+                </form>
+              </div>
+            </div>
+          )}
         </div>
       )}
 
@@ -1736,7 +2050,7 @@ export const AdminDashboardModule: React.FC<AdminDashboardModuleProps> = ({
                 Published Event Posts ({localEvents.length})
               </h3>
               <span className="text-xs text-slate-500">
-                Auto-erases 3 days after start date or Admin can erase anytime
+                Permanently saved in database • Admin can edit or erase anytime
               </span>
             </div>
 
@@ -1829,13 +2143,24 @@ export const AdminDashboardModule: React.FC<AdminDashboardModuleProps> = ({
                         </button>
                       </div>
                     ) : (
-                      <button
-                        onClick={() => handleEraseEventPost(evt.id)}
-                        className="px-4 py-2 bg-rose-600 hover:bg-rose-500 text-white font-bold text-xs rounded-xl flex items-center space-x-1.5 shadow transition-all shrink-0 hover:scale-[1.02]"
-                      >
-                        <Trash2 className="w-3.5 h-3.5" />
-                        <span>Erase Event Post Entirely</span>
-                      </button>
+                      <div className="flex items-center space-x-2 shrink-0">
+                        <button
+                          onClick={() => setEditingEvent({ ...evt })}
+                          className="px-4 py-2 bg-white hover:bg-slate-100 text-slate-800 hover:text-slate-950 font-bold text-xs rounded-xl flex items-center space-x-1.5 border border-slate-300 shadow-xs transition-all hover:scale-[1.02]"
+                          title="Edit this event program"
+                        >
+                          <Edit3 className="w-3.5 h-3.5 text-blue-600" />
+                          <span>Edit Event Post</span>
+                        </button>
+                        <button
+                          onClick={() => handleEraseEventPost(evt.id)}
+                          className="px-4 py-2 bg-rose-600 hover:bg-rose-500 text-white font-bold text-xs rounded-xl flex items-center space-x-1.5 shadow transition-all hover:scale-[1.02]"
+                          title="Erase this event permanently"
+                        >
+                          <Trash2 className="w-3.5 h-3.5" />
+                          <span>Erase Event Post Entirely</span>
+                        </button>
+                      </div>
                     )}
                   </div>
                 );
@@ -1843,6 +2168,156 @@ export const AdminDashboardModule: React.FC<AdminDashboardModuleProps> = ({
             </div>
             )}
           </div>
+
+          {/* Edit Event Modal */}
+          {editingEvent && (
+            <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-xs flex items-center justify-center p-4">
+              <div className="bg-white rounded-3xl shadow-2xl max-w-2xl w-full max-h-[90vh] overflow-y-auto border border-slate-200 flex flex-col">
+                <div className="p-5 bg-gradient-to-r from-slate-900 to-slate-800 text-white flex items-center justify-between rounded-t-3xl">
+                  <div className="flex items-center space-x-2">
+                    <Edit3 className="w-5 h-5 text-amber-400" />
+                    <h3 className="text-base font-extrabold">Edit Event Program</h3>
+                  </div>
+                  <button 
+                    onClick={() => setEditingEvent(null)}
+                    className="p-1 rounded-lg hover:bg-white/10 text-slate-300 hover:text-white"
+                  >
+                    <X className="w-5 h-5" />
+                  </button>
+                </div>
+
+                <form onSubmit={handleSaveEditedEvent} className="p-6 space-y-4">
+                  <div>
+                    <label className="text-xs font-bold text-slate-700 block mb-1">Event Title *</label>
+                    <input
+                      type="text"
+                      required
+                      value={editingEvent.title}
+                      onChange={(e) => setEditingEvent({ ...editingEvent, title: e.target.value })}
+                      className="w-full px-3.5 py-2 text-sm bg-slate-50 border border-slate-300 rounded-xl focus:ring-2 focus:ring-[#0B192C] focus:bg-white"
+                    />
+                  </div>
+
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    <div>
+                      <label className="text-xs font-bold text-slate-700 block mb-1">Host / Organizing Committee</label>
+                      <input
+                        type="text"
+                        value={editingEvent.hostName || ''}
+                        onChange={(e) => setEditingEvent({ ...editingEvent, hostName: e.target.value })}
+                        className="w-full px-3.5 py-2 text-sm bg-slate-50 border border-slate-300 rounded-xl focus:ring-2 focus:ring-[#0B192C] focus:bg-white"
+                      />
+                    </div>
+                    <div>
+                      <label className="text-xs font-bold text-slate-700 block mb-1">Category / Tag</label>
+                      <input
+                        type="text"
+                        value={editingEvent.category || ''}
+                        onChange={(e) => setEditingEvent({ ...editingEvent, category: e.target.value })}
+                        className="w-full px-3.5 py-2 text-sm bg-slate-50 border border-slate-300 rounded-xl focus:ring-2 focus:ring-[#0B192C] focus:bg-white"
+                      />
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    <div>
+                      <label className="text-xs font-bold text-slate-700 block mb-1">Event Date *</label>
+                      <input
+                        type="text"
+                        required
+                        value={editingEvent.date}
+                        onChange={(e) => setEditingEvent({ ...editingEvent, date: e.target.value })}
+                        className="w-full px-3.5 py-2 text-sm bg-slate-50 border border-slate-300 rounded-xl focus:ring-2 focus:ring-[#0B192C] focus:bg-white"
+                      />
+                    </div>
+                    <div>
+                      <label className="text-xs font-bold text-slate-700 block mb-1">Event Time</label>
+                      <input
+                        type="text"
+                        value={editingEvent.time}
+                        onChange={(e) => setEditingEvent({ ...editingEvent, time: e.target.value })}
+                        className="w-full px-3.5 py-2 text-sm bg-slate-50 border border-slate-300 rounded-xl focus:ring-2 focus:ring-[#0B192C] focus:bg-white"
+                      />
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    <div>
+                      <label className="text-xs font-bold text-slate-700 block mb-1">Venue Type</label>
+                      <select
+                        value={editingEvent.venueType || 'In Person'}
+                        onChange={(e) => setEditingEvent({ ...editingEvent, venueType: e.target.value as any })}
+                        className="w-full px-3.5 py-2 text-sm bg-slate-50 border border-slate-300 rounded-xl focus:ring-2 focus:ring-[#0B192C] focus:bg-white"
+                      >
+                        <option value="In Person">In Person</option>
+                        <option value="Online">Online Session</option>
+                        <option value="Hybrid">Hybrid</option>
+                      </select>
+                    </div>
+                    <div>
+                      <label className="text-xs font-bold text-slate-700 block mb-1">Venue Location / Name</label>
+                      <input
+                        type="text"
+                        value={editingEvent.venue}
+                        onChange={(e) => setEditingEvent({ ...editingEvent, venue: e.target.value })}
+                        className="w-full px-3.5 py-2 text-sm bg-slate-50 border border-slate-300 rounded-xl focus:ring-2 focus:ring-[#0B192C] focus:bg-white"
+                      />
+                    </div>
+                  </div>
+
+                  <div>
+                    <label className="text-xs font-bold text-slate-700 block mb-1">Online Meeting Link (Google Meet / Zoom)</label>
+                    <input
+                      type="url"
+                      value={editingEvent.meetingLink || ''}
+                      onChange={(e) => setEditingEvent({ ...editingEvent, meetingLink: e.target.value })}
+                      placeholder="https://meet.google.com/... or https://zoom.us/..."
+                      className="w-full px-3.5 py-2 text-sm bg-slate-50 border border-slate-300 rounded-xl focus:ring-2 focus:ring-[#0B192C] focus:bg-white"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="text-xs font-bold text-slate-700 block mb-1">Poster / Banner Image URL</label>
+                    <input
+                      type="text"
+                      value={editingEvent.thumbnailUrl || ''}
+                      onChange={(e) => setEditingEvent({ ...editingEvent, thumbnailUrl: e.target.value })}
+                      className="w-full px-3.5 py-2 text-sm bg-slate-50 border border-slate-300 rounded-xl focus:ring-2 focus:ring-[#0B192C] focus:bg-white"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="text-xs font-bold text-slate-700 block mb-1">Event Description & Program Details</label>
+                    <textarea
+                      rows={3}
+                      value={editingEvent.description || ''}
+                      onChange={(e) => setEditingEvent({ ...editingEvent, description: e.target.value })}
+                      className="w-full px-3.5 py-2 text-sm bg-slate-50 border border-slate-300 rounded-xl focus:ring-2 focus:ring-[#0B192C] focus:bg-white resize-none"
+                    />
+                  </div>
+
+                  <div className="flex items-center justify-end space-x-3 pt-3 border-t border-slate-200">
+                    <button
+                      type="button"
+                      onClick={() => setEditingEvent(null)}
+                      disabled={isUpdatingEvent}
+                      className="px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold text-xs rounded-xl transition-all"
+                    >
+                      Cancel
+                    </button>
+                    <button
+                      type="submit"
+                      disabled={isUpdatingEvent}
+                      className="px-5 py-2 bg-[#0B192C] hover:bg-[#1E3A8A] text-white font-bold text-xs rounded-xl shadow transition-all flex items-center space-x-1.5 disabled:opacity-50"
+                    >
+                      <Save className="w-3.5 h-3.5" />
+                      <span>{isUpdatingEvent ? 'Saving Changes...' : 'Save Changes'}</span>
+                    </button>
+                  </div>
+                </form>
+              </div>
+            </div>
+          )}
         </div>
       )}
 
@@ -2838,17 +3313,152 @@ export const AdminDashboardModule: React.FC<AdminDashboardModuleProps> = ({
                     </div>
                   </div>
 
-                  <div className="shrink-0">
+                  <div className="flex items-center gap-2 shrink-0">
+                    <button
+                      onClick={() => setEditingTableTalk({ ...post })}
+                      className="w-full md:w-auto px-4 py-2.5 bg-white hover:bg-slate-100 text-slate-800 font-bold text-xs rounded-xl border border-slate-300 shadow-xs flex items-center justify-center gap-1.5 transition-all hover:scale-[1.02]"
+                      title="Edit Table Talk Discussion"
+                    >
+                      <Edit3 className="w-3.5 h-3.5 text-blue-600" />
+                      <span>Edit Post</span>
+                    </button>
                     <button
                       onClick={() => handleDeleteTableTalkPost(post.id, post.discussionTopic)}
-                      className="w-full md:w-auto px-4 py-2.5 bg-rose-600 hover:bg-rose-500 text-white font-bold text-xs rounded-xl shadow flex items-center justify-center gap-1.5 transition-all"
+                      className="w-full md:w-auto px-4 py-2.5 bg-rose-600 hover:bg-rose-500 text-white font-bold text-xs rounded-xl shadow flex items-center justify-center gap-1.5 transition-all hover:scale-[1.02]"
                     >
-                      <X className="w-4 h-4" />
+                      <Trash2 className="w-3.5 h-3.5" />
                       <span>Delete Post</span>
                     </button>
                   </div>
                 </div>
               ))}
+            </div>
+          )}
+
+          {/* Edit Table Talk Modal */}
+          {editingTableTalk && (
+            <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-xs flex items-center justify-center p-4">
+              <div className="bg-white rounded-3xl shadow-2xl max-w-xl w-full max-h-[90vh] overflow-y-auto border border-slate-200 flex flex-col">
+                <div className="p-5 bg-gradient-to-r from-slate-900 to-slate-800 text-white flex items-center justify-between rounded-t-3xl">
+                  <div className="flex items-center space-x-2">
+                    <Edit3 className="w-5 h-5 text-amber-400" />
+                    <h3 className="text-base font-extrabold">Edit Table Talk Discussion</h3>
+                  </div>
+                  <button 
+                    onClick={() => setEditingTableTalk(null)}
+                    className="p-1 rounded-lg hover:bg-white/10 text-slate-300 hover:text-white"
+                  >
+                    <X className="w-5 h-5" />
+                  </button>
+                </div>
+
+                <form onSubmit={handleSaveEditedTableTalk} className="p-6 space-y-4">
+                  <div>
+                    <label className="text-xs font-bold text-slate-700 block mb-1">Discussion Topic / Question *</label>
+                    <textarea
+                      required
+                      rows={4}
+                      value={editingTableTalk.discussionTopic}
+                      onChange={(e) => setEditingTableTalk({ ...editingTableTalk, discussionTopic: e.target.value })}
+                      className="w-full px-3.5 py-2 text-sm bg-slate-50 border border-slate-300 rounded-xl focus:ring-2 focus:ring-[#0B192C] focus:bg-white resize-none"
+                    />
+                  </div>
+
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    <div>
+                      <label className="text-xs font-bold text-slate-700 block mb-1">Due Date</label>
+                      <input
+                        type="text"
+                        value={editingTableTalk.dueDate || ''}
+                        onChange={(e) => setEditingTableTalk({ ...editingTableTalk, dueDate: e.target.value })}
+                        placeholder="e.g. Oct 25, 2026 or YYYY-MM-DD"
+                        className="w-full px-3.5 py-2 text-sm bg-slate-50 border border-slate-300 rounded-xl focus:ring-2 focus:ring-[#0B192C] focus:bg-white"
+                      />
+                    </div>
+                    <div>
+                      <label className="text-xs font-bold text-slate-700 block mb-1">Due Time</label>
+                      <input
+                        type="text"
+                        value={editingTableTalk.dueTime || ''}
+                        onChange={(e) => setEditingTableTalk({ ...editingTableTalk, dueTime: e.target.value })}
+                        placeholder="e.g. 05:00 PM"
+                        className="w-full px-3.5 py-2 text-sm bg-slate-50 border border-slate-300 rounded-xl focus:ring-2 focus:ring-[#0B192C] focus:bg-white"
+                      />
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                    <div>
+                      <label className="text-xs font-bold text-slate-700 block mb-1">Host Name</label>
+                      <input
+                        type="text"
+                        value={editingTableTalk.hostName || ''}
+                        onChange={(e) => setEditingTableTalk({ ...editingTableTalk, hostName: e.target.value })}
+                        className="w-full px-3.5 py-2 text-sm bg-slate-50 border border-slate-300 rounded-xl focus:ring-2 focus:ring-[#0B192C] focus:bg-white"
+                      />
+                    </div>
+                    <div>
+                      <label className="text-xs font-bold text-slate-700 block mb-1">Host Student ID / Roll</label>
+                      <input
+                        type="text"
+                        value={editingTableTalk.hostRoll || ''}
+                        onChange={(e) => setEditingTableTalk({ ...editingTableTalk, hostRoll: e.target.value })}
+                        className="w-full px-3.5 py-2 text-sm bg-slate-50 border border-slate-300 rounded-xl focus:ring-2 focus:ring-[#0B192C] focus:bg-white"
+                      />
+                    </div>
+                    <div>
+                      <label className="text-xs font-bold text-slate-700 block mb-1">Host Email</label>
+                      <input
+                        type="email"
+                        value={editingTableTalk.hostEmail || ''}
+                        onChange={(e) => setEditingTableTalk({ ...editingTableTalk, hostEmail: e.target.value })}
+                        className="w-full px-3.5 py-2 text-sm bg-slate-50 border border-slate-300 rounded-xl focus:ring-2 focus:ring-[#0B192C] focus:bg-white"
+                      />
+                    </div>
+                  </div>
+
+                  <div>
+                    <label className="text-xs font-bold text-slate-700 block mb-1">Attached Document / File Link (Google Drive)</label>
+                    <input
+                      type="url"
+                      value={editingTableTalk.attachedFileLink || ''}
+                      onChange={(e) => setEditingTableTalk({ ...editingTableTalk, attachedFileLink: e.target.value })}
+                      placeholder="https://drive.google.com/..."
+                      className="w-full px-3.5 py-2 text-sm bg-slate-50 border border-slate-300 rounded-xl focus:ring-2 focus:ring-[#0B192C] focus:bg-white"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="text-xs font-bold text-slate-700 block mb-1">Attached Photo / Picture Link</label>
+                    <input
+                      type="url"
+                      value={editingTableTalk.takenPictureLink || ''}
+                      onChange={(e) => setEditingTableTalk({ ...editingTableTalk, takenPictureLink: e.target.value })}
+                      placeholder="https://..."
+                      className="w-full px-3.5 py-2 text-sm bg-slate-50 border border-slate-300 rounded-xl focus:ring-2 focus:ring-[#0B192C] focus:bg-white"
+                    />
+                  </div>
+
+                  <div className="flex items-center justify-end space-x-3 pt-3 border-t border-slate-200">
+                    <button
+                      type="button"
+                      onClick={() => setEditingTableTalk(null)}
+                      disabled={isUpdatingTableTalk}
+                      className="px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold text-xs rounded-xl transition-all"
+                    >
+                      Cancel
+                    </button>
+                    <button
+                      type="submit"
+                      disabled={isUpdatingTableTalk}
+                      className="px-5 py-2 bg-[#0B192C] hover:bg-[#1E3A8A] text-white font-bold text-xs rounded-xl shadow transition-all flex items-center space-x-1.5 disabled:opacity-50"
+                    >
+                      <Save className="w-3.5 h-3.5" />
+                      <span>{isUpdatingTableTalk ? 'Saving Changes...' : 'Save Changes'}</span>
+                    </button>
+                  </div>
+                </form>
+              </div>
             </div>
           )}
         </div>

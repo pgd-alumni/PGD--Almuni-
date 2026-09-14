@@ -462,6 +462,7 @@ export default function App() {
                   adminJobs={adminJobs}
                   onUpdateJobStatus={handleUpdateJobStatus}
                   onDeleteJob={handleDeleteJob}
+                  onRefreshJobs={loadData}
                   events={events}
                   onRefreshEvents={loadData}
                   alumniList={alumniList}

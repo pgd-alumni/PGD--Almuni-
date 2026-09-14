@@ -37,14 +37,8 @@ export const EventProgramSidebar: React.FC<EventProgramSidebarProps> = ({
     setCurrentSlide(prev => (prev === safeEvents.length - 1 ? 0 : prev + 1));
   };
 
-  // Auto slide option every 6 seconds
-  useEffect(() => {
-    if (events.length <= 1) return;
-    const timer = setInterval(() => {
-      setCurrentSlide(prev => (prev === events.length - 1 ? 0 : prev + 1));
-    }, 6000);
-    return () => clearInterval(timer);
-  }, [events.length]);
+  // No automatic changing of slide; user controls navigation with prev/next arrows or indicator dots
+  // This ensures updated content remains steady and visible without unexpected auto-switching
 
   // Fetch reviews for active event
   useEffect(() => {

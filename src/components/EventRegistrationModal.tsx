@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { X, CheckCircle2, Sparkles, CreditCard, Send, AlertCircle } from 'lucide-react';
 import { EventItem } from '../types';
 
@@ -28,8 +28,14 @@ export const EventRegistrationModal: React.FC<EventRegistrationModalProps> = ({
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState(false);
 
+  useEffect(() => {
+    if (event?.title) {
+      setSelectedEventTitle(event.title);
+    }
+  }, [event?.title]);
+
   if (!event && events.length === 0) return null;
-  const activeEvent = event || events[0];
+  const activeEvent = events.find(e => e.title === selectedEventTitle) || event || events[0];
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();

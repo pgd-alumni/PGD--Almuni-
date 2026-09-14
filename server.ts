@@ -806,6 +806,9 @@ const defaultEvents: EventItem[] = [
 ];
 
 let inMemoryEvents: EventItem[] = loadPersistedData<EventItem[]>('events.json', defaultEvents);
+if (!fs.existsSync(path.join(DATA_DIR, 'events.json'))) {
+  savePersistedData('events.json', inMemoryEvents);
+}
 
 const defaultEventRegistrations: EventRegistration[] = [
   {
@@ -1632,6 +1635,52 @@ async function startServer() {
     res.json({ success: true, message: `Job post ${id} deleted successfully` });
   });
 
+  // Admin / Public Update Job Post
+  app.put("/api/admin/jobs/:id", (req, res) => {
+    const { id } = req.params;
+    const index = inMemoryJobs.findIndex(j => j.id === id);
+    if (index === -1) {
+      return res.status(404).json({ success: false, message: `Job post ${id} not found` });
+    }
+    inMemoryJobs[index] = {
+      ...inMemoryJobs[index],
+      ...req.body,
+      id
+    };
+    savePersistedData('jobs.json', inMemoryJobs);
+    res.json({ success: true, message: `Job post ${id} updated successfully`, job: inMemoryJobs[index] });
+  });
+
+  app.patch("/api/admin/jobs/:id", (req, res) => {
+    const { id } = req.params;
+    const index = inMemoryJobs.findIndex(j => j.id === id);
+    if (index === -1) {
+      return res.status(404).json({ success: false, message: `Job post ${id} not found` });
+    }
+    inMemoryJobs[index] = {
+      ...inMemoryJobs[index],
+      ...req.body,
+      id
+    };
+    savePersistedData('jobs.json', inMemoryJobs);
+    res.json({ success: true, message: `Job post ${id} patched successfully`, job: inMemoryJobs[index] });
+  });
+
+  app.put("/api/jobs/:id", (req, res) => {
+    const { id } = req.params;
+    const index = inMemoryJobs.findIndex(j => j.id === id);
+    if (index === -1) {
+      return res.status(404).json({ success: false, message: `Job post ${id} not found` });
+    }
+    inMemoryJobs[index] = {
+      ...inMemoryJobs[index],
+      ...req.body,
+      id
+    };
+    savePersistedData('jobs.json', inMemoryJobs);
+    res.json({ success: true, message: `Job post ${id} updated successfully`, job: inMemoryJobs[index] });
+  });
+
   // 7. Events List
   app.get("/api/events", (req, res) => {
     res.json({ success: true, data: inMemoryEvents });
@@ -1690,6 +1739,45 @@ async function startServer() {
     }
 
     res.json({ success: true, message: "Event program published successfully!", event: newEvent, whatsappAlertText });
+  });
+
+  // Admin Update / Edit Event Program
+  app.put("/api/admin/events/:id", (req, res) => {
+    const { id } = req.params;
+    const index = inMemoryEvents.findIndex(e => e.id === id);
+    if (index === -1) {
+      return res.status(404).json({ success: false, message: `Event ${id} not found` });
+    }
+    const { title, hostName, category, date, time, venue, venueType, meetingLink, description, thumbnailUrl, maxSeats, status } = req.body;
+    
+    inMemoryEvents[index] = {
+      ...inMemoryEvents[index],
+      title: title ?? inMemoryEvents[index].title,
+      hostName: hostName !== undefined ? hostName : inMemoryEvents[index].hostName,
+      category: category !== undefined ? category : inMemoryEvents[index].category,
+      date: date ?? inMemoryEvents[index].date,
+      time: time !== undefined ? time : inMemoryEvents[index].time,
+      venue: venue !== undefined ? venue : inMemoryEvents[index].venue,
+      venueType: venueType !== undefined ? venueType : inMemoryEvents[index].venueType,
+      meetingLink: meetingLink !== undefined ? meetingLink : inMemoryEvents[index].meetingLink,
+      description: description !== undefined ? description : inMemoryEvents[index].description,
+      thumbnailUrl: thumbnailUrl !== undefined ? thumbnailUrl : inMemoryEvents[index].thumbnailUrl,
+      maxSeats: maxSeats ? parseInt(maxSeats) : inMemoryEvents[index].maxSeats,
+      status: status !== undefined ? status : inMemoryEvents[index].status
+    };
+    savePersistedData('events.json', inMemoryEvents);
+    res.json({ success: true, message: "Event program updated successfully!", event: inMemoryEvents[index] });
+  });
+
+  app.patch("/api/admin/events/:id", (req, res) => {
+    const { id } = req.params;
+    const index = inMemoryEvents.findIndex(e => e.id === id);
+    if (index === -1) {
+      return res.status(404).json({ success: false, message: `Event ${id} not found` });
+    }
+    inMemoryEvents[index] = { ...inMemoryEvents[index], ...req.body };
+    savePersistedData('events.json', inMemoryEvents);
+    res.json({ success: true, message: "Event program patched successfully!", event: inMemoryEvents[index] });
   });
 
   let configuredEventWebhookUrl = process.env.EVENT_SHEET_WEBHOOK_URL || "";
@@ -2472,32 +2560,8 @@ async function startServer() {
     return res.json({ success: true, message: "Comment erased successfully by Admin.", removed });
   });
 
-  // Auto-Erase Event Posts 3 Days After Start Date
-  const autoEraseOldEvents = () => {
-    const THREE_DAYS_MS = 3 * 24 * 60 * 60 * 1000;
-    const now = Date.now();
-    const initialLen = inMemoryEvents.length;
-    inMemoryEvents = inMemoryEvents.filter(evt => {
-      if (!evt.date) return true;
-      const evtTime = new Date(evt.date).getTime();
-      // If event date was more than 3 days ago, auto erase
-      if (!isNaN(evtTime) && (now - evtTime) > THREE_DAYS_MS) {
-        // Also remove reviews
-        inMemoryEventReviews = inMemoryEventReviews.filter(r => r.eventId !== evt.id);
-        return false;
-      }
-      return true;
-    });
-
-    if (inMemoryEvents.length !== initialLen) {
-      savePersistedData('events.json', inMemoryEvents);
-      savePersistedData('event_reviews.json', inMemoryEventReviews);
-    }
-  };
-
-  // Get All Event Reviews Across Programs (with auto-erase check)
+  // Get All Event Reviews Across Programs
   app.get("/api/events/all-reviews", (req, res) => {
-    autoEraseOldEvents();
     res.json({ success: true, count: inMemoryEventReviews.length, data: inMemoryEventReviews });
   });
 
@@ -2850,6 +2914,53 @@ async function startServer() {
       savePersistedData('tabletalk.json', inMemoryTableTalkPosts);
     }
     return res.json({ success: true, message: `Table Talk post '${id}' deleted successfully.`, removed });
+  });
+
+  // Admin / Public Edit Table Talk Post
+  app.put("/api/admin/tabletalk/:id", (req, res) => {
+    const { id } = req.params;
+    const index = inMemoryTableTalkPosts.findIndex(p => p.id === id);
+    if (index === -1) {
+      return res.status(404).json({ success: false, message: `Table Talk post '${id}' not found` });
+    }
+    const { discussionTopic, dueDate, dueTime, attachedFileLink, attachedFileName, takenPictureLink, hostName, hostEmail, hostRoll } = req.body;
+    inMemoryTableTalkPosts[index] = {
+      ...inMemoryTableTalkPosts[index],
+      discussionTopic: discussionTopic ?? inMemoryTableTalkPosts[index].discussionTopic,
+      dueDate: dueDate ?? inMemoryTableTalkPosts[index].dueDate,
+      dueTime: dueTime ?? inMemoryTableTalkPosts[index].dueTime,
+      attachedFileLink: attachedFileLink !== undefined ? attachedFileLink : inMemoryTableTalkPosts[index].attachedFileLink,
+      attachedFileName: attachedFileName !== undefined ? attachedFileName : inMemoryTableTalkPosts[index].attachedFileName,
+      takenPictureLink: takenPictureLink !== undefined ? takenPictureLink : inMemoryTableTalkPosts[index].takenPictureLink,
+      hostName: hostName ?? inMemoryTableTalkPosts[index].hostName,
+      hostEmail: hostEmail !== undefined ? hostEmail : inMemoryTableTalkPosts[index].hostEmail,
+      hostRoll: hostRoll !== undefined ? hostRoll : inMemoryTableTalkPosts[index].hostRoll,
+      id
+    };
+    savePersistedData('tabletalk.json', inMemoryTableTalkPosts);
+    res.json({ success: true, message: `Table Talk post '${id}' updated successfully`, post: inMemoryTableTalkPosts[index] });
+  });
+
+  app.patch("/api/admin/tabletalk/:id", (req, res) => {
+    const { id } = req.params;
+    const index = inMemoryTableTalkPosts.findIndex(p => p.id === id);
+    if (index === -1) {
+      return res.status(404).json({ success: false, message: `Table Talk post '${id}' not found` });
+    }
+    inMemoryTableTalkPosts[index] = { ...inMemoryTableTalkPosts[index], ...req.body, id };
+    savePersistedData('tabletalk.json', inMemoryTableTalkPosts);
+    res.json({ success: true, message: `Table Talk post '${id}' patched successfully`, post: inMemoryTableTalkPosts[index] });
+  });
+
+  app.put("/api/tabletalk/:id", (req, res) => {
+    const { id } = req.params;
+    const index = inMemoryTableTalkPosts.findIndex(p => p.id === id);
+    if (index === -1) {
+      return res.status(404).json({ success: false, message: `Table Talk post '${id}' not found` });
+    }
+    inMemoryTableTalkPosts[index] = { ...inMemoryTableTalkPosts[index], ...req.body, id };
+    savePersistedData('tabletalk.json', inMemoryTableTalkPosts);
+    res.json({ success: true, message: `Table Talk post '${id}' updated successfully`, post: inMemoryTableTalkPosts[index] });
   });
 
   // Admin Clear All Table Talk Posts & Comments (Moderation Reset)

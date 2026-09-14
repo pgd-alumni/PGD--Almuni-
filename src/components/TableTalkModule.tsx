@@ -26,7 +26,9 @@ import {
   X,
   ThumbsUp,
   Crown,
-  CheckCircle2
+  CheckCircle2,
+  Edit3,
+  Save
 } from 'lucide-react';
 import { TableTalkPost, TableTalkReview, UserProfile, AlumniRecord } from '../types';
 import { getInitialTableTalk } from '../utils/dataEngine';
@@ -367,6 +369,41 @@ export const TableTalkModule: React.FC<TableTalkModuleProps> = ({
       window.removeEventListener('tabletalk-changed', handleSync);
     };
   }, []);
+
+  // Edit Table Talk Post State
+  const [editingPost, setEditingPost] = useState<TableTalkPost | null>(null);
+  const [isUpdatingPost, setIsUpdatingPost] = useState(false);
+
+  const handleSaveEditedPost = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!editingPost) return;
+    setIsUpdatingPost(true);
+    try {
+      const res = await fetch(`/api/tabletalk/${encodeURIComponent(editingPost.id)}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(editingPost)
+      });
+      const data = await res.json();
+      if (res.ok && data.success) {
+        setPosts(prev => {
+          const updated = prev.map(p => p.id === editingPost.id ? data.post : p);
+          try {
+            localStorage.setItem('butex_table_talk_posts', JSON.stringify(updated));
+          } catch (e) {}
+          return updated;
+        });
+        window.dispatchEvent(new CustomEvent('tabletalk-changed', { detail: { action: 'update', post: data.post } }));
+        setEditingPost(null);
+      } else {
+        alert(`Failed to update discussion: ${data.message || 'Error occurred'}`);
+      }
+    } catch (err: any) {
+      alert(`Error updating discussion: ${err.message}`);
+    } finally {
+      setIsUpdatingPost(false);
+    }
+  };
 
   // Delete Table Talk Post (Instant & Persisted)
   const handleDeletePost = async (postId: string) => {
@@ -1139,6 +1176,14 @@ export const TableTalkModule: React.FC<TableTalkModuleProps> = ({
                           </div>
                           <button
                             type="button"
+                            onClick={() => setEditingPost({ ...post })}
+                            className="p-1.5 text-slate-400 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition-colors"
+                            title="Edit Discussion"
+                          >
+                            <Edit3 className="w-4 h-4" />
+                          </button>
+                          <button
+                            type="button"
                             onClick={() => handleDeletePost(post.id)}
                             className="p-1.5 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-lg transition-colors"
                             title="Delete Discussion"
@@ -1546,6 +1591,133 @@ export const TableTalkModule: React.FC<TableTalkModuleProps> = ({
         </div>
 
       </div>
+
+      {/* Edit Table Talk Post Modal */}
+      {editingPost && (
+        <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-xs flex items-center justify-center p-4">
+          <div className="bg-white rounded-3xl shadow-2xl max-w-xl w-full max-h-[90vh] overflow-y-auto border border-slate-200 flex flex-col">
+            <div className="p-5 bg-gradient-to-r from-slate-900 to-slate-800 text-white flex items-center justify-between rounded-t-3xl">
+              <div className="flex items-center space-x-2">
+                <Edit3 className="w-5 h-5 text-amber-400" />
+                <h3 className="text-base font-extrabold">Edit Table Talk Discussion</h3>
+              </div>
+              <button 
+                onClick={() => setEditingPost(null)}
+                className="p-1 rounded-lg hover:bg-white/10 text-slate-300 hover:text-white"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <form onSubmit={handleSaveEditedPost} className="p-6 space-y-4">
+              <div>
+                <label className="text-xs font-bold text-slate-700 block mb-1">Discussion Topic / Question *</label>
+                <textarea
+                  required
+                  rows={4}
+                  value={editingPost.discussionTopic}
+                  onChange={(e) => setEditingPost({ ...editingPost, discussionTopic: e.target.value })}
+                  className="w-full px-3.5 py-2 text-sm bg-slate-50 border border-slate-300 rounded-xl focus:ring-2 focus:ring-[#002147] focus:bg-white resize-none"
+                />
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div>
+                  <label className="text-xs font-bold text-slate-700 block mb-1">Due Date</label>
+                  <input
+                    type="text"
+                    value={editingPost.dueDate || ''}
+                    onChange={(e) => setEditingPost({ ...editingPost, dueDate: e.target.value })}
+                    placeholder="e.g. Oct 25, 2026 or YYYY-MM-DD"
+                    className="w-full px-3.5 py-2 text-sm bg-slate-50 border border-slate-300 rounded-xl focus:ring-2 focus:ring-[#002147] focus:bg-white"
+                  />
+                </div>
+                <div>
+                  <label className="text-xs font-bold text-slate-700 block mb-1">Due Time</label>
+                  <input
+                    type="text"
+                    value={editingPost.dueTime || ''}
+                    onChange={(e) => setEditingPost({ ...editingPost, dueTime: e.target.value })}
+                    placeholder="e.g. 05:00 PM"
+                    className="w-full px-3.5 py-2 text-sm bg-slate-50 border border-slate-300 rounded-xl focus:ring-2 focus:ring-[#002147] focus:bg-white"
+                  />
+                </div>
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                <div>
+                  <label className="text-xs font-bold text-slate-700 block mb-1">Host Name</label>
+                  <input
+                    type="text"
+                    value={editingPost.hostName || ''}
+                    onChange={(e) => setEditingPost({ ...editingPost, hostName: e.target.value })}
+                    className="w-full px-3.5 py-2 text-sm bg-slate-50 border border-slate-300 rounded-xl focus:ring-2 focus:ring-[#002147] focus:bg-white"
+                  />
+                </div>
+                <div>
+                  <label className="text-xs font-bold text-slate-700 block mb-1">Host Student ID / Roll</label>
+                  <input
+                    type="text"
+                    value={editingPost.hostRoll || ''}
+                    onChange={(e) => setEditingPost({ ...editingPost, hostRoll: e.target.value })}
+                    className="w-full px-3.5 py-2 text-sm bg-slate-50 border border-slate-300 rounded-xl focus:ring-2 focus:ring-[#002147] focus:bg-white"
+                  />
+                </div>
+                <div>
+                  <label className="text-xs font-bold text-slate-700 block mb-1">Host Email</label>
+                  <input
+                    type="email"
+                    value={editingPost.hostEmail || ''}
+                    onChange={(e) => setEditingPost({ ...editingPost, hostEmail: e.target.value })}
+                    className="w-full px-3.5 py-2 text-sm bg-slate-50 border border-slate-300 rounded-xl focus:ring-2 focus:ring-[#002147] focus:bg-white"
+                  />
+                </div>
+              </div>
+
+              <div>
+                <label className="text-xs font-bold text-slate-700 block mb-1">Attached Document / File Link (Google Drive)</label>
+                <input
+                  type="url"
+                  value={editingPost.attachedFileLink || ''}
+                  onChange={(e) => setEditingPost({ ...editingPost, attachedFileLink: e.target.value })}
+                  placeholder="https://drive.google.com/..."
+                  className="w-full px-3.5 py-2 text-sm bg-slate-50 border border-slate-300 rounded-xl focus:ring-2 focus:ring-[#002147] focus:bg-white"
+                />
+              </div>
+
+              <div>
+                <label className="text-xs font-bold text-slate-700 block mb-1">Attached Photo / Picture Link</label>
+                <input
+                  type="url"
+                  value={editingPost.takenPictureLink || ''}
+                  onChange={(e) => setEditingPost({ ...editingPost, takenPictureLink: e.target.value })}
+                  placeholder="https://..."
+                  className="w-full px-3.5 py-2 text-sm bg-slate-50 border border-slate-300 rounded-xl focus:ring-2 focus:ring-[#002147] focus:bg-white"
+                />
+              </div>
+
+              <div className="flex items-center justify-end space-x-3 pt-3 border-t border-slate-200">
+                <button
+                  type="button"
+                  onClick={() => setEditingPost(null)}
+                  disabled={isUpdatingPost}
+                  className="px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold text-xs rounded-xl transition-all"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={isUpdatingPost}
+                  className="px-5 py-2 bg-[#002147] hover:bg-[#003366] text-white font-bold text-xs rounded-xl shadow transition-all flex items-center space-x-1.5 disabled:opacity-50"
+                >
+                  <Save className="w-3.5 h-3.5" />
+                  <span>{isUpdatingPost ? 'Saving Changes...' : 'Save Changes'}</span>
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

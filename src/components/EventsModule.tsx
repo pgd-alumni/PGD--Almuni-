@@ -26,7 +26,7 @@ import { ClassReviewSection } from './ClassReviewSection';
 
 interface EventsModuleProps {
   events: EventItem[];
-  onRegisterEvent: (id: string) => void;
+  onRegisterEvent: (event: EventItem) => void;
   onDeleteEvent?: (id: string, title: string) => void;
 }
 
@@ -73,11 +73,11 @@ export const EventsModule: React.FC<EventsModuleProps> = ({
     return localEvents;
   }, [selectedView, activeEvents, archivedEvents, localEvents]);
 
-  const handleRegister = (id: string) => {
-    if (!registeredIds.includes(id)) {
-      setRegisteredIds(prev => [...prev, id]);
-      onRegisterEvent(id);
+  const handleRegister = (event: EventItem) => {
+    if (!registeredIds.includes(event.id)) {
+      setRegisteredIds(prev => [...prev, event.id]);
     }
+    onRegisterEvent(event);
   };
 
   const handleDeleteEventPost = async (eventId: string, title: string) => {
@@ -403,7 +403,7 @@ export const EventsModule: React.FC<EventsModuleProps> = ({
                         </div>
                       ) : (
                         <button
-                          onClick={() => handleRegister(evt.id)}
+                          onClick={() => handleRegister(evt)}
                           disabled={isRegistered || isFull}
                           className={`w-full sm:w-auto px-6 py-2.5 rounded-xl font-bold text-xs transition-all flex items-center justify-center space-x-1.5 shadow-sm active:scale-95 ${
                             isRegistered
