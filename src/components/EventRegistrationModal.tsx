@@ -1,6 +1,6 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { X, CheckCircle2, Sparkles, CreditCard, Send, AlertCircle } from 'lucide-react';
-import { EventItem } from '../types';
+import { EventItem, isEventOneDayOver } from '../types';
 
 interface EventRegistrationModalProps {
   event: EventItem | null;
@@ -15,10 +15,19 @@ export const EventRegistrationModal: React.FC<EventRegistrationModalProps> = ({
   onClose,
   onSubmitted
 }) => {
+  // Only active events can be registered
+  const activeEventsList = useMemo(() => {
+    const list = (events || []).filter(e => !isEventOneDayOver(e.date));
+    if (event && !list.find(e => e.id === event.id) && !isEventOneDayOver(event.date)) {
+      list.unshift(event);
+    }
+    return list;
+  }, [events, event]);
+
   const [studentName, setStudentName] = useState('');
   const [studentId, setStudentId] = useState('');
   const [memberEmail, setMemberEmail] = useState('');
-  const [selectedEventTitle, setSelectedEventTitle] = useState(event?.title || (events[0]?.title || ''));
+  const [selectedEventTitle, setSelectedEventTitle] = useState(event?.title || (activeEventsList[0]?.title || ''));
   const [memberPhone, setMemberPhone] = useState('');
   const [paymentGateway, setPaymentGateway] = useState<'bKash' | 'Nagad' | 'Rocket' | 'Bank Transfer'>('bKash');
   const [paymentRefNo, setPaymentRefNo] = useState('');
@@ -31,11 +40,13 @@ export const EventRegistrationModal: React.FC<EventRegistrationModalProps> = ({
   useEffect(() => {
     if (event?.title) {
       setSelectedEventTitle(event.title);
+    } else if (activeEventsList.length > 0 && !selectedEventTitle) {
+      setSelectedEventTitle(activeEventsList[0].title);
     }
-  }, [event?.title]);
+  }, [event?.title, activeEventsList]);
 
-  if (!event && events.length === 0) return null;
-  const activeEvent = events.find(e => e.title === selectedEventTitle) || event || events[0];
+  if (!event && activeEventsList.length === 0) return null;
+  const activeEvent = activeEventsList.find(e => e.title === selectedEventTitle) || event || activeEventsList[0];
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -219,8 +230,8 @@ export const EventRegistrationModal: React.FC<EventRegistrationModalProps> = ({
                   required
                   className="w-full bg-slate-50 border border-slate-300 rounded-xl px-3.5 py-2.5 text-slate-900 focus:outline-none focus:border-amber-500 font-bold text-xs"
                 >
-                  {events.length > 0 ? (
-                    events.map((evt) => (
+                  {activeEventsList.length > 0 ? (
+                    activeEventsList.map((evt) => (
                       <option key={evt.id} value={evt.title}>
                         {evt.title} ({evt.date})
                       </option>

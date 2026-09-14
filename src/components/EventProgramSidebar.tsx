@@ -1,19 +1,25 @@
-import React, { useState, useEffect } from 'react';
-import { Calendar, Clock, MapPin, Sparkles, ChevronLeft, ChevronRight, FileText, UserCheck, Star, Lock, Unlock, MessageSquare, Send, Maximize2, X } from 'lucide-react';
+import React, { useState, useEffect, useMemo } from 'react';
+import { Calendar, Clock, MapPin, Sparkles, ChevronLeft, ChevronRight, FileText, UserCheck, Star, Lock, Unlock, MessageSquare, Send, Maximize2, X, Archive } from 'lucide-react';
 import { EventItem, EventReview, formatGoogleDriveUrl, isEventOneDayOver } from '../types';
 
 interface EventProgramSidebarProps {
   events: EventItem[];
   onOpenRegisterModal: (event: EventItem) => void;
-  onGoToEventDetails?: (event: EventItem) => void;
+  onGoToEventDetails?: (event?: EventItem) => void;
+  onGoToArchive?: () => void;
 }
 
 export const EventProgramSidebar: React.FC<EventProgramSidebarProps> = ({
   events = [],
   onOpenRegisterModal,
-  onGoToEventDetails
+  onGoToEventDetails,
+  onGoToArchive
 }) => {
-  const safeEvents = events || [];
+  // Filter to strictly active upcoming events (expired events belong only to the Archive section)
+  const activeEvents = useMemo(() => {
+    return (events || []).filter(e => !isEventOneDayOver(e.date));
+  }, [events]);
+
   const [currentSlide, setCurrentSlide] = useState(0);
   const [reviewsMap, setReviewsMap] = useState<Record<string, EventReview[]>>({});
   const [newRating, setNewRating] = useState<number>(5);
@@ -23,18 +29,25 @@ export const EventProgramSidebar: React.FC<EventProgramSidebarProps> = ({
   const [submittingReview, setSubmittingReview] = useState(false);
   const [fullscreenPoster, setFullscreenPoster] = useState<string | null>(null);
 
+  // Keep slide index in bounds when active events change
+  useEffect(() => {
+    if (currentSlide >= activeEvents.length && activeEvents.length > 0) {
+      setCurrentSlide(0);
+    }
+  }, [activeEvents.length, currentSlide]);
+
   // Active event based on slide index
-  const safeSlideIndex = safeEvents.length > 0 ? (currentSlide % safeEvents.length + safeEvents.length) % safeEvents.length : 0;
-  const activeEvent = safeEvents[safeSlideIndex] || safeEvents[0];
+  const safeSlideIndex = activeEvents.length > 0 ? (currentSlide % activeEvents.length + activeEvents.length) % activeEvents.length : 0;
+  const activeEvent = activeEvents[safeSlideIndex] || activeEvents[0];
 
   const handlePrevSlide = () => {
-    if (safeEvents.length <= 1) return;
-    setCurrentSlide(prev => (prev === 0 ? safeEvents.length - 1 : prev - 1));
+    if (activeEvents.length <= 1) return;
+    setCurrentSlide(prev => (prev === 0 ? activeEvents.length - 1 : prev - 1));
   };
 
   const handleNextSlide = () => {
-    if (safeEvents.length <= 1) return;
-    setCurrentSlide(prev => (prev === safeEvents.length - 1 ? 0 : prev + 1));
+    if (activeEvents.length <= 1) return;
+    setCurrentSlide(prev => (prev === activeEvents.length - 1 ? 0 : prev + 1));
   };
 
   // No automatic changing of slide; user controls navigation with prev/next arrows or indicator dots
@@ -98,7 +111,49 @@ export const EventProgramSidebar: React.FC<EventProgramSidebarProps> = ({
     }
   };
 
-  if (events.length === 0) return null;
+  if (activeEvents.length === 0) {
+    const archivedCount = events.filter(e => isEventOneDayOver(e.date)).length;
+    return (
+      <div className="bg-amber-400 border-2 border-amber-500 rounded-3xl p-4 sm:p-5 shadow-xl space-y-4 text-slate-950 h-full flex flex-col justify-between transition-all">
+        {/* Sidebar Header */}
+        <div className="flex items-center justify-between border-b border-amber-500/60 pb-2.5">
+          <div className="flex items-center space-x-2">
+            <Sparkles className="w-4 h-4 text-slate-950 fill-amber-300" />
+            <h3 className="text-xs font-bold text-slate-900 uppercase tracking-wider">UPCOMING EVENT</h3>
+          </div>
+          <div className="flex items-center space-x-1.5">
+            <span className="px-2 py-0.5 rounded-full bg-slate-950 text-amber-400 text-[10px] font-extrabold shadow-sm">
+              0 Active Events
+            </span>
+          </div>
+        </div>
+
+        {/* Empty Active Events State */}
+        <div className="relative flex-1 bg-slate-950 text-white rounded-2xl p-6 shadow-2xl border border-amber-500/40 flex flex-col items-center justify-center text-center space-y-3">
+          <div className="w-12 h-12 rounded-2xl bg-amber-400/10 border border-amber-400/20 flex items-center justify-center text-amber-400">
+            <Calendar className="w-6 h-6" />
+          </div>
+          <h4 className="text-sm font-bold text-slate-100">No Active Events Scheduled</h4>
+          <p className="text-xs text-slate-400 max-w-xs leading-relaxed">
+            All recent meetings have concluded and are safely archived. Past event recordings and discussion notes are available in the Archive.
+          </p>
+          <button
+            onClick={() => {
+              if (onGoToArchive) {
+                onGoToArchive();
+              } else if (onGoToEventDetails) {
+                onGoToEventDetails();
+              }
+            }}
+            className="mt-2 py-2 px-4 rounded-xl bg-amber-400 hover:bg-amber-300 text-slate-950 text-xs font-bold transition-all shadow flex items-center space-x-1.5"
+          >
+            <Archive className="w-3.5 h-3.5" />
+            <span>Browse Past Event Archive {archivedCount > 0 ? `(${archivedCount})` : ''}</span>
+          </button>
+        </div>
+      </div>
+    );
+  }
 
   const currentReviews = activeEvent ? (reviewsMap[activeEvent.id] || []) : [];
   const isSectionUnlocked = activeEvent ? (unlockedMap[activeEvent.id] ?? true) : true;
@@ -114,7 +169,7 @@ export const EventProgramSidebar: React.FC<EventProgramSidebarProps> = ({
         </div>
         <div className="flex items-center space-x-1.5">
           <span className="px-2 py-0.5 rounded-full bg-slate-950 text-amber-400 text-[10px] font-extrabold shadow-sm">
-            {events.length} Active Events
+            {activeEvents.length} Active {activeEvents.length === 1 ? 'Event' : 'Events'}
           </span>
         </div>
       </div>
@@ -123,10 +178,10 @@ export const EventProgramSidebar: React.FC<EventProgramSidebarProps> = ({
       <div className="relative flex-1 bg-slate-950 text-white rounded-2xl p-4 shadow-2xl border border-amber-500/40 flex flex-col justify-between overflow-hidden">
         
         {/* Slide navigation controls */}
-        {events.length > 1 && (
+        {activeEvents.length > 1 && (
           <div className="flex items-center justify-between mb-2.5 border-b border-slate-800 pb-2 shrink-0">
             <span className="text-[10px] font-bold text-amber-400 uppercase tracking-wider">
-              Slide {safeSlideIndex + 1} of {events.length}
+              Slide {safeSlideIndex + 1} of {activeEvents.length}
             </span>
             <div className="flex items-center space-x-1">
               <button
@@ -183,10 +238,10 @@ export const EventProgramSidebar: React.FC<EventProgramSidebarProps> = ({
             )}
 
             {/* Slider Dots Indicator - Interactive Carousel Control */}
-            {events.length > 1 && (
+            {activeEvents.length > 1 && (
               <div className="flex flex-col items-center justify-center space-y-1 pt-1 shrink-0">
                 <div className="flex justify-center items-center space-x-2">
-                  {events.map((_, idx) => (
+                  {activeEvents.map((_, idx) => (
                     <button
                       key={idx}
                       onClick={() => setCurrentSlide(idx)}

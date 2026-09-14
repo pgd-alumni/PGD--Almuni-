@@ -32,6 +32,7 @@ interface HomeModuleProps {
   onRegisterEvent: (evt: EventItem) => void;
   setActiveTab: (tab: string) => void;
   onSearchQuery: (query: string) => void;
+  onSelectEventsView?: (view: 'ACTIVE' | 'ARCHIVE') => void;
 }
 
 export const HomeModule: React.FC<HomeModuleProps> = ({
@@ -42,6 +43,7 @@ export const HomeModule: React.FC<HomeModuleProps> = ({
   onRegisterEvent,
   setActiveTab,
   onSearchQuery,
+  onSelectEventsView,
 }) => {
   const [searchKey, setSearchKey] = useState('');
   const [imageErrors, setImageErrors] = useState<Record<string, boolean>>({});
@@ -462,7 +464,14 @@ export const HomeModule: React.FC<HomeModuleProps> = ({
           <EventProgramSidebar
             events={events}
             onOpenRegisterModal={onRegisterEvent}
-            onGoToEventDetails={() => setActiveTab('events')}
+            onGoToEventDetails={() => {
+              if (onSelectEventsView) onSelectEventsView('ACTIVE');
+              setActiveTab('events');
+            }}
+            onGoToArchive={() => {
+              if (onSelectEventsView) onSelectEventsView('ARCHIVE');
+              setActiveTab('events');
+            }}
           />
         </div>
 

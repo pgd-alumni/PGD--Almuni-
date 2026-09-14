@@ -81,6 +81,7 @@ export default function App() {
   const [searchQuery, setSearchQuery] = useState<string>('');
   const [loading, setLoading] = useState<boolean>(true);
   const [fetchError, setFetchError] = useState<string | null>(null);
+  const [eventsInitialView, setEventsInitialView] = useState<'ACTIVE' | 'ARCHIVE'>('ACTIVE');
 
   // Helper to safely sanitize raw alumni records coming from Google Sheets / API
   const sanitizeAlumniData = (data: any[]): AlumniRecord[] => {
@@ -376,6 +377,7 @@ export default function App() {
                     onRegisterEvent={(evt) => setRegisteringEvent(evt)}
                     setActiveTab={setActiveTab}
                     onSearchQuery={setSearchQuery}
+                    onSelectEventsView={setEventsInitialView}
                   />
 
                   {/* Full 12-Column Alumni Action Hub over Footer */}
@@ -424,6 +426,7 @@ export default function App() {
               {activeTab === 'events' && (
                 <EventsModule
                   events={events}
+                  initialView={eventsInitialView}
                   onRegisterEvent={(evt) => setRegisteringEvent(evt)}
                   onDeleteEvent={async (id, title) => {
                     try {

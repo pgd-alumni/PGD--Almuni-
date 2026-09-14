@@ -565,6 +565,7 @@ export const AdminDashboardModule: React.FC<AdminDashboardModuleProps> = ({
   const [localEvents, setLocalEvents] = useState<EventItem[]>(events);
   const [editingEvent, setEditingEvent] = useState<EventItem | null>(null);
   const [isUpdatingEvent, setIsUpdatingEvent] = useState(false);
+  const [adminEventFilter, setAdminEventFilter] = useState<'ALL' | 'ACTIVE' | 'ARCHIVED'>('ALL');
 
   // Job Post Editing State
   const [editingJob, setEditingJob] = useState<JobPost | null>(null);
@@ -2045,13 +2046,52 @@ export const AdminDashboardModule: React.FC<AdminDashboardModuleProps> = ({
 
           {/* Published Event Posts & Moderation */}
           <div className="pt-6 border-t border-slate-200 space-y-4">
-            <div className="flex items-center justify-between">
-              <h3 className="text-base font-extrabold text-slate-900">
-                Published Event Posts ({localEvents.length})
-              </h3>
-              <span className="text-xs text-slate-500">
-                Permanently saved in database • Admin can edit or erase anytime
-              </span>
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+              <div>
+                <h3 className="text-base font-extrabold text-slate-900">
+                  Published Event Posts ({localEvents.length})
+                </h3>
+                <span className="text-xs text-slate-500">
+                  Permanently saved in database • Admin can edit or erase anytime
+                </span>
+              </div>
+              <div className="flex items-center gap-1.5 bg-slate-100 p-1 rounded-xl border border-slate-200 text-xs">
+                <button
+                  type="button"
+                  onClick={() => setAdminEventFilter('ALL')}
+                  className={`px-3 py-1.5 rounded-lg font-bold transition-all ${
+                    adminEventFilter === 'ALL'
+                      ? 'bg-white text-slate-900 shadow-xs'
+                      : 'text-slate-600 hover:text-slate-900'
+                  }`}
+                >
+                  All ({localEvents.length})
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setAdminEventFilter('ACTIVE')}
+                  className={`px-3 py-1.5 rounded-lg font-bold transition-all flex items-center space-x-1 ${
+                    adminEventFilter === 'ACTIVE'
+                      ? 'bg-emerald-600 text-white shadow-xs'
+                      : 'text-slate-600 hover:text-slate-900'
+                  }`}
+                >
+                  <span>Active</span>
+                  <span className="text-[10px] opacity-90 font-mono">({localEvents.filter(e => !isEventOneDayOver(e.date)).length})</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setAdminEventFilter('ARCHIVED')}
+                  className={`px-3 py-1.5 rounded-lg font-bold transition-all flex items-center space-x-1 ${
+                    adminEventFilter === 'ARCHIVED'
+                      ? 'bg-rose-600 text-white shadow-xs'
+                      : 'text-slate-600 hover:text-slate-900'
+                  }`}
+                >
+                  <span>Archived</span>
+                  <span className="text-[10px] opacity-90 font-mono">({localEvents.filter(e => isEventOneDayOver(e.date)).length})</span>
+                </button>
+              </div>
             </div>
 
             {/* Erase Feedback Message */}
@@ -2070,7 +2110,13 @@ export const AdminDashboardModule: React.FC<AdminDashboardModuleProps> = ({
               </div>
             ) : (
               <div className="space-y-3">
-                {localEvents.map((evt) => {
+                {localEvents
+                  .filter(evt => {
+                    if (adminEventFilter === 'ACTIVE') return !isEventOneDayOver(evt.date);
+                    if (adminEventFilter === 'ARCHIVED') return isEventOneDayOver(evt.date);
+                    return true;
+                  })
+                  .map((evt) => {
                   const isOverOneDay = isEventOneDayOver(evt.date);
                   const formattedThumbnail = formatGoogleDriveUrl(evt.thumbnailUrl) || evt.thumbnailUrl;
 

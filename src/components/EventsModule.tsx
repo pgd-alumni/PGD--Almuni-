@@ -26,18 +26,20 @@ import { ClassReviewSection } from './ClassReviewSection';
 
 interface EventsModuleProps {
   events: EventItem[];
+  initialView?: 'ACTIVE' | 'ARCHIVE';
   onRegisterEvent: (event: EventItem) => void;
   onDeleteEvent?: (id: string, title: string) => void;
 }
 
 export const EventsModule: React.FC<EventsModuleProps> = ({ 
   events, 
+  initialView = 'ACTIVE',
   onRegisterEvent,
   onDeleteEvent 
 }) => {
   const [localEvents, setLocalEvents] = useState<EventItem[]>(events);
   const [registeredIds, setRegisteredIds] = useState<string[]>([]);
-  const [selectedView, setSelectedView] = useState<'ACTIVE' | 'ARCHIVE' | 'ALL'>('ACTIVE');
+  const [selectedView, setSelectedView] = useState<'ACTIVE' | 'ARCHIVE'>(initialView);
   const [fullscreenPoster, setFullscreenPoster] = useState<string | null>(null);
   
   // Deletion states
@@ -49,6 +51,13 @@ export const EventsModule: React.FC<EventsModuleProps> = ({
   useEffect(() => {
     setLocalEvents(events);
   }, [events]);
+
+  // Sync initialView if prop changes
+  useEffect(() => {
+    if (initialView) {
+      setSelectedView(initialView);
+    }
+  }, [initialView]);
 
   // Split into active events vs archive (where meeting date is 1+ day over)
   const { activeEvents, archivedEvents } = useMemo(() => {
@@ -66,12 +75,11 @@ export const EventsModule: React.FC<EventsModuleProps> = ({
     return { activeEvents: active, archivedEvents: archived };
   }, [localEvents]);
 
-  // Filtered events based on selected tab view
+  // Filtered events based on selected tab view (expired events show ONLY in Archive section)
   const displayedEvents = useMemo(() => {
-    if (selectedView === 'ACTIVE') return activeEvents;
     if (selectedView === 'ARCHIVE') return archivedEvents;
-    return localEvents;
-  }, [selectedView, activeEvents, archivedEvents, localEvents]);
+    return activeEvents;
+  }, [selectedView, activeEvents, archivedEvents]);
 
   const handleRegister = (event: EventItem) => {
     if (!registeredIds.includes(event.id)) {
@@ -120,7 +128,7 @@ export const EventsModule: React.FC<EventsModuleProps> = ({
           Participate in alumni reunions, industrial automation factory visits, technical masterclasses, and annual research forums. Access current sessions, or browse past meetings in the Archive section.
         </p>
 
-        {/* View Selection Tabs: Active vs Archive vs All */}
+        {/* View Selection Tabs: Active vs Archive */}
         <div className="pt-3 flex flex-wrap items-center gap-2.5 border-t border-slate-800">
           <button
             onClick={() => setSelectedView('ACTIVE')}
@@ -153,23 +161,6 @@ export const EventsModule: React.FC<EventsModuleProps> = ({
               selectedView === 'ARCHIVE' ? 'bg-slate-950 text-amber-400' : 'bg-slate-700 text-slate-300'
             }`}>
               {archivedEvents.length}
-            </span>
-          </button>
-
-          <button
-            onClick={() => setSelectedView('ALL')}
-            className={`px-4 py-2 rounded-2xl text-xs font-bold transition-all flex items-center space-x-2 ${
-              selectedView === 'ALL'
-                ? 'bg-amber-500 text-slate-950 shadow-md scale-[1.02]'
-                : 'bg-slate-800 text-slate-300 hover:bg-slate-700'
-            }`}
-          >
-            <Filter className="w-3.5 h-3.5" />
-            <span>All Programs</span>
-            <span className={`px-2 py-0.5 rounded-full text-[10px] font-mono font-extrabold ${
-              selectedView === 'ALL' ? 'bg-slate-950 text-amber-400' : 'bg-slate-700 text-slate-300'
-            }`}>
-              {localEvents.length}
             </span>
           </button>
         </div>
