@@ -19,10 +19,12 @@ import {
   Trash2,
   Maximize2,
   X,
-  AlertCircle
+  AlertCircle,
+  FileText
 } from 'lucide-react';
 import { EventItem, EventReview, formatGoogleDriveUrl, isEventOneDayOver } from '../types';
 import { ClassReviewSection } from './ClassReviewSection';
+import { EventDocumentDetails } from './EventDocumentDetails';
 
 interface EventsModuleProps {
   events: EventItem[];
@@ -349,12 +351,13 @@ export const EventsModule: React.FC<EventsModuleProps> = ({
                       </p>
                     </div>
 
-                    {/* Box 3: Event Details */}
-                    <div className="bg-slate-50 border border-slate-200 rounded-xl p-3 shadow-xs">
-                      <p className="text-xs text-slate-800 leading-relaxed">
-                        <strong className="font-extrabold text-slate-900">Event Details : </strong>
-                        {evt.description}
-                      </p>
+                    {/* Box 3: Event Details - Structured Document & Bullet Layout */}
+                    <div className="bg-slate-50 border border-slate-200 rounded-xl p-3.5 shadow-xs">
+                      <div className="flex items-center space-x-1.5 mb-2 pb-1.5 border-b border-slate-200/70">
+                        <FileText className="w-3.5 h-3.5 text-slate-700 shrink-0" />
+                        <span className="font-extrabold text-slate-900 text-xs">Event Details :</span>
+                      </div>
+                      <EventDocumentDetails text={evt.description} />
                     </div>
 
                     {/* Box 4: Date / Time / Venue */}

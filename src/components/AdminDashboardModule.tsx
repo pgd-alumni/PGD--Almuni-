@@ -35,11 +35,14 @@ import {
   Settings,
   Archive,
   FileText,
-  Edit3
+  Edit3,
+  List,
+  Eye
 } from 'lucide-react';
 import { JobPost, EventItem, EventRegistration, TableTalkPost, MemberJoinRequest, AlumniRecord, formatGoogleDriveUrl, isEventOneDayOver } from '../types';
 import { WhapiSettingsModule } from './WhapiSettingsModule';
 import { AdminCompaniesModule } from './AdminCompaniesModule';
+import { EventDocumentDetails } from './EventDocumentDetails';
 
 interface AdminDashboardModuleProps {
   adminJobs: JobPost[];
@@ -222,6 +225,7 @@ export const AdminDashboardModule: React.FC<AdminDashboardModuleProps> = ({
   const [evtThumbnail, setEvtThumbnail] = useState('');
   const [evtCategory, setEvtCategory] = useState('');
   const [evtSuccess, setEvtSuccess] = useState<string | null>(null);
+  const [previewEvtDetails, setPreviewEvtDetails] = useState(false);
 
   // Erase Event State
   const [confirmingEraseId, setConfirmingEraseId] = useState<string | null>(null);
@@ -565,6 +569,7 @@ export const AdminDashboardModule: React.FC<AdminDashboardModuleProps> = ({
   const [localEvents, setLocalEvents] = useState<EventItem[]>(events);
   const [editingEvent, setEditingEvent] = useState<EventItem | null>(null);
   const [isUpdatingEvent, setIsUpdatingEvent] = useState(false);
+  const [previewEditDetails, setPreviewEditDetails] = useState(false);
   const [adminEventFilter, setAdminEventFilter] = useState<'ALL' | 'ACTIVE' | 'ARCHIVED'>('ALL');
 
   // Job Post Editing State
@@ -1756,18 +1761,73 @@ export const AdminDashboardModule: React.FC<AdminDashboardModuleProps> = ({
             </div>
 
             {/* Event Details */}
-            <div>
-              <label className="block text-[10px] uppercase font-bold text-slate-700 mb-1">
-                Event Details * <span className="text-amber-600 font-normal">(Appears under Host Name)</span>
-              </label>
+            <div className="space-y-2">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                <label className="block text-[10px] uppercase font-bold text-slate-700">
+                  Event Details * <span className="text-amber-600 font-normal">(Appears under Host Name — Document & Bullet formatting enabled)</span>
+                </label>
+                <div className="flex items-center gap-1.5 flex-wrap">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setEvtDetails(prev => {
+                        const trimmed = prev.trimEnd();
+                        return trimmed ? `${trimmed}\n• ` : '• ';
+                      });
+                    }}
+                    className="px-2 py-1 text-[11px] font-bold bg-slate-100 hover:bg-amber-100 text-slate-700 hover:text-amber-900 border border-slate-300 rounded-lg inline-flex items-center space-x-1 transition-all"
+                    title="Insert bullet item"
+                  >
+                    <List className="w-3 h-3 text-amber-600" />
+                    <span>+ Bullet (•)</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setEvtDetails(prev => {
+                        const trimmed = prev.trimEnd();
+                        return trimmed ? `${trimmed}\n\nWhat we'll cover:\n• ` : "What we'll cover:\n• ";
+                      });
+                    }}
+                    className="px-2 py-1 text-[11px] font-bold bg-slate-100 hover:bg-blue-100 text-slate-700 hover:text-blue-900 border border-slate-300 rounded-lg inline-flex items-center space-x-1 transition-all"
+                    title="Insert 'What we\'ll cover:' heading"
+                  >
+                    <span>+ "What we'll cover:"</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setPreviewEvtDetails(!previewEvtDetails)}
+                    className={`px-2.5 py-1 text-[11px] font-bold rounded-lg inline-flex items-center space-x-1 transition-all border ${
+                      previewEvtDetails
+                        ? 'bg-amber-500 text-slate-950 border-amber-600 shadow-xs'
+                        : 'bg-white hover:bg-slate-100 text-slate-700 border-slate-300'
+                    }`}
+                  >
+                    <Eye className="w-3 h-3" />
+                    <span>{previewEvtDetails ? 'Hide Preview' : 'Preview Document'}</span>
+                  </button>
+                </div>
+              </div>
+
               <textarea
                 value={evtDetails}
                 onChange={(e) => setEvtDetails(e.target.value)}
-                placeholder="Enter full course agenda, syllabus, prerequisites, and learning outcomes for paid class..."
-                rows={3}
+                placeholder={"Example:\nAn interactive online session to help you speak confidently and overcome nervousness...\n\nWhat we'll cover:\n• Why we freeze up in interviews, and how to manage that nervousness\n• Structuring clear, confident answers to common interview questions\n• Tone, body language, and eye contact\n• Live mock-interview practice with feedback\n• Open Q&A"}
+                rows={5}
                 required
-                className="w-full bg-slate-50 border border-slate-300 rounded-xl p-3 text-slate-900 focus:outline-none focus:border-amber-500"
+                className="w-full bg-slate-50 border border-slate-300 rounded-xl p-3 text-slate-900 focus:outline-none focus:border-amber-500 font-sans text-xs leading-relaxed"
               />
+
+              {previewEvtDetails && (
+                <div className="p-3.5 bg-slate-100/90 border border-slate-300 rounded-xl space-y-1.5">
+                  <div className="flex items-center space-x-1.5 pb-1.5 border-b border-slate-300/80 text-slate-700">
+                    <FileText className="w-3.5 h-3.5 text-slate-600" />
+                    <span className="font-extrabold text-slate-900 text-xs">Event Details :</span>
+                    <span className="text-[10px] text-slate-500 font-medium">(Document & Bullet Live Preview)</span>
+                  </div>
+                  <EventDocumentDetails text={evtDetails} />
+                </div>
+              )}
             </div>
 
             {/* Event Badge / Category Tag (Optional & Customizable) */}
@@ -2332,14 +2392,57 @@ export const AdminDashboardModule: React.FC<AdminDashboardModuleProps> = ({
                     />
                   </div>
 
-                  <div>
-                    <label className="text-xs font-bold text-slate-700 block mb-1">Event Description & Program Details</label>
+                  <div className="space-y-1.5">
+                    <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-1.5">
+                      <label className="text-xs font-bold text-slate-700">Event Description & Program Details</label>
+                      <div className="flex items-center gap-1.5 flex-wrap">
+                        <button
+                          type="button"
+                          onClick={() => {
+                            const prev = editingEvent.description || '';
+                            const trimmed = prev.trimEnd();
+                            setEditingEvent({
+                              ...editingEvent,
+                              description: trimmed ? `${trimmed}\n• ` : '• '
+                            });
+                          }}
+                          className="px-2 py-0.5 text-[10px] font-bold bg-slate-100 hover:bg-amber-100 text-slate-700 hover:text-amber-900 border border-slate-300 rounded-lg inline-flex items-center space-x-1"
+                        >
+                          <List className="w-3 h-3 text-amber-600" />
+                          <span>+ Bullet (•)</span>
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setPreviewEditDetails(!previewEditDetails)}
+                          className={`px-2 py-0.5 text-[10px] font-bold rounded-lg inline-flex items-center space-x-1 border ${
+                            previewEditDetails
+                              ? 'bg-amber-500 text-slate-950 border-amber-600'
+                              : 'bg-white hover:bg-slate-100 text-slate-700 border-slate-300'
+                          }`}
+                        >
+                          <Eye className="w-3 h-3" />
+                          <span>{previewEditDetails ? 'Hide Preview' : 'Preview Layout'}</span>
+                        </button>
+                      </div>
+                    </div>
+
                     <textarea
-                      rows={3}
+                      rows={5}
                       value={editingEvent.description || ''}
                       onChange={(e) => setEditingEvent({ ...editingEvent, description: e.target.value })}
-                      className="w-full px-3.5 py-2 text-sm bg-slate-50 border border-slate-300 rounded-xl focus:ring-2 focus:ring-[#0B192C] focus:bg-white resize-none"
+                      placeholder="Enter description with paragraphs, headings, and bullets..."
+                      className="w-full px-3.5 py-2 text-xs bg-slate-50 border border-slate-300 rounded-xl focus:ring-2 focus:ring-[#0B192C] focus:bg-white resize-y font-sans leading-relaxed"
                     />
+
+                    {previewEditDetails && (
+                      <div className="p-3 bg-slate-100 border border-slate-300 rounded-xl">
+                        <div className="flex items-center space-x-1 mb-1.5 pb-1 border-b border-slate-300 text-slate-700">
+                          <FileText className="w-3 h-3 text-slate-600" />
+                          <span className="font-extrabold text-slate-900 text-xs">Event Details Preview :</span>
+                        </div>
+                        <EventDocumentDetails text={editingEvent.description} />
+                      </div>
+                    )}
                   </div>
 
                   <div className="flex items-center justify-end space-x-3 pt-3 border-t border-slate-200">

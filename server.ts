@@ -802,6 +802,22 @@ const defaultEvents: EventItem[] = [
     maxSeats: 250,
     status: "Upcoming",
     createdAt: new Date().toISOString()
+  },
+  {
+    id: "EVT-04",
+    title: "Job Interview Speaking Skills – Online Session",
+    hostName: "Major (Retd) Masum Billah, CEO – Bay Group (Guest Faculty Teacher)",
+    category: "Training",
+    date: "2026-09-17",
+    time: "9:30 PM to 10:30 PM",
+    venue: "Google Meet",
+    venueType: "Online",
+    description: "An interactive online session to help you speak confidently and overcome nervousness when answering questions in job interviews — led by Major (Retd) Masum Billah, CEO of Bay Group and Guest Faculty Teacher.\n\nWhat we'll cover:\n• Why we freeze up in interviews, and how to manage that nervousness\n• Structuring clear, confident answers to common interview questions\n• Tone, body language, and eye contact that work well on video calls\n• Live mock-interview practice with feedback\n• Open Q&A",
+    thumbnailUrl: "https://images.unsplash.com/photo-1573496359142-b8d87734a5a2?auto=format&fit=crop&w=800&q=80",
+    registeredCount: 0,
+    maxSeats: 200,
+    status: "Upcoming",
+    createdAt: new Date().toISOString()
   }
 ];
 
